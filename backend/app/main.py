@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hmac
 import os
 import uuid
 from typing import Literal, Any
@@ -12,8 +13,10 @@ from pydantic import BaseModel, Field
 COMFYUI = os.getenv("COMFYUI_BASE_URL", "http://127.0.0.1:8188").rstrip("/")
 API_KEY = os.getenv("API_KEY", "").strip()
 MAX_PROMPT_LENGTH = int(os.getenv("MAX_PROMPT_LENGTH", "4000"))
+MAX_WORKFLOW_NODES = int(os.getenv("MAX_WORKFLOW_NODES", "250"))
+MAX_TRACKED_JOBS = int(os.getenv("MAX_TRACKED_JOBS", "500"))
 
-app = FastAPI(title="AI Studio API", version="0.1.1")
+app = FastAPI(title="AI Studio API", version="0.1.2")
 origins = [x.strip() for x in os.getenv("CORS_ORIGINS", "").split(",") if x.strip()]
 app.add_middleware(CORSMiddleware, allow_origins=origins or [], allow_credentials=False,
                    allow_methods=["GET", "POST"], allow_headers=["Authorization", "Content-Type"])
@@ -23,25 +26,27 @@ jobs: dict[str, dict[str, Any]] = {}
 
 class CreateJob(BaseModel):
     type: Literal["IMAGE", "VIDEO"]
-    prompt: str = Field(min_length=1)
-    negativePrompt: str = ""
-    workflow: dict[str, Any] = Field(description="Validated ComfyUI API-format workflow")
+    prompt: str = Field(min_length=1, max_length=MAX_PROMPT_LENGTH)
+    negativePrompt: str = Field(default="", max_length=MAX_PROMPT_LENGTH)
+    workflow: dict[str, Any] = Field(description="Temporary compatibility input; replace with server-owned workflow IDs")
 
 async def authorize(authorization: str | None = Header(default=None)) -> None:
     # Fail closed: never expose protected endpoints without an explicit server secret.
     if not API_KEY:
         raise HTTPException(status_code=503, detail="Backend API_KEY is not configured")
-    if authorization != f"Bearer {API_KEY}":
+    expected = f"Bearer {API_KEY}"
+    if authorization is None or not hmac.compare_digest(authorization, expected):
         raise HTTPException(status_code=401, detail="Unauthorized")
 
 async def comfy_request(method: str, path: str, **kwargs: Any) -> Any:
     try:
-        async with httpx.AsyncClient(timeout=30) as client:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(30.0, connect=5.0)) as client:
             response = await client.request(method, f"{COMFYUI}{path}", **kwargs)
             response.raise_for_status()
             return response.json() if response.content else {}
     except httpx.HTTPError as exc:
-        raise HTTPException(status_code=502, detail=f"ComfyUI unavailable: {exc.__class__.__name__}") from exc
+        # Avoid leaking upstream URLs, response bodies, or credentials to clients.
+        raise HTTPException(status_code=502, detail=f"ComfyUI request failed ({exc.__class__.__name__})") from exc
 
 @app.get("/api/health")
 async def health():
@@ -53,10 +58,15 @@ async def health():
 
 @app.post("/api/jobs", dependencies=[Depends(authorize)])
 async def create_job(request: CreateJob):
-    if len(request.prompt) > MAX_PROMPT_LENGTH or len(request.negativePrompt) > MAX_PROMPT_LENGTH:
-        raise HTTPException(status_code=413, detail="Prompt too long")
-    # Do not accept arbitrary client workflows in production. Map workflow IDs to
-    # server-owned templates and validate node types/inputs before queueing.
+    if not request.workflow:
+        raise HTTPException(status_code=422, detail="Workflow must not be empty")
+    if len(request.workflow) > MAX_WORKFLOW_NODES:
+        raise HTTPException(status_code=413, detail="Workflow has too many nodes")
+    if len(jobs) >= MAX_TRACKED_JOBS:
+        raise HTTPException(status_code=503, detail="Job capacity reached; restart or clear completed jobs")
+
+    # Security boundary still pending: client workflows are a compatibility path.
+    # Production deployment must replace this with server-owned, allowlisted templates.
     client_id = str(uuid.uuid4())
     result = await comfy_request("POST", "/prompt", json={"prompt": request.workflow, "client_id": client_id})
     prompt_id = result.get("prompt_id")
@@ -84,8 +94,11 @@ async def get_job(job_id: str):
         outputs = item.get("outputs", {})
         files = []
         for node in outputs.values():
-            for key in ("images", "videos", "gifs"):
-                files.extend(node.get(key, []))
+            if isinstance(node, dict):
+                for key in ("images", "videos", "gifs"):
+                    value = node.get(key, [])
+                    if isinstance(value, list):
+                        files.extend(value)
         job["outputs"] = files
         job["progress"] = 1.0
     elif status.get("status_str") == "error":
