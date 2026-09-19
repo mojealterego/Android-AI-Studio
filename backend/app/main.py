@@ -8,7 +8,7 @@ from typing import Literal, Any
 import httpx
 from fastapi import FastAPI, Header, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 from .workflow_registry import registry
 
@@ -18,7 +18,7 @@ MAX_PROMPT_LENGTH = int(os.getenv("MAX_PROMPT_LENGTH", "4000"))
 MAX_WORKFLOW_NODES = int(os.getenv("MAX_WORKFLOW_NODES", "250"))
 MAX_TRACKED_JOBS = int(os.getenv("MAX_TRACKED_JOBS", "500"))
 
-app = FastAPI(title="AI Studio API", version="0.2.0")
+app = FastAPI(title="AI Studio API", version="0.2.1")
 origins = [x.strip() for x in os.getenv("CORS_ORIGINS", "").split(",") if x.strip()]
 app.add_middleware(CORSMiddleware, allow_origins=origins or [], allow_credentials=False,
                    allow_methods=["GET", "POST"], allow_headers=["Authorization", "Content-Type"])
@@ -34,6 +34,7 @@ class CreateJob(BaseModel):
     workflow: dict[str, Any] = Field(description="Legacy compatibility input; migrate to server-owned workflow IDs")
 
 class CreateJobV2(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     workflow_id: str = Field(min_length=1, max_length=64, pattern=r"^[a-z][a-z0-9_-]{0,63}$")
     parameters: dict[str, Any] = Field(default_factory=dict)
 
@@ -79,7 +80,8 @@ async def list_workflows():
 
 @app.post("/api/v2/jobs", dependencies=[Depends(authorize)])
 async def create_job_v2(request: CreateJobV2):
-    # Build from a server-owned template. No client-supplied graph is accepted here.
+    # Resolve metadata and build from the same validated server-owned specification.
+    spec = registry.get_spec(request.workflow_id)
     graph = registry.build(request.workflow_id, request.parameters)
     if len(graph) > MAX_WORKFLOW_NODES:
         raise HTTPException(status_code=422, detail="Workflow exceeds backend node limit")
@@ -87,9 +89,7 @@ async def create_job_v2(request: CreateJobV2):
         raise HTTPException(status_code=503, detail="Job capacity reached; restart or clear completed jobs")
     client_id = str(uuid.uuid4())
     result = await comfy_request("POST", "/prompt", json={"prompt": graph, "client_id": client_id})
-    spec = next((item for item in registry.public_list() if item["id"] == request.workflow_id), None)
-    media_type = spec["type"] if spec else "IMAGE"
-    return store_job(result.get("prompt_id"), client_id, media_type)
+    return store_job(result.get("prompt_id"), client_id, spec.media_type)
 
 @app.post("/api/jobs", dependencies=[Depends(authorize)])
 async def create_job(request: CreateJob):
