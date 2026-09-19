@@ -10,7 +10,7 @@ import retrofit2.http.POST
 import retrofit2.http.Path
 import java.util.concurrent.TimeUnit
 
-/** DTOs aligned with backend/app/main.py. */
+/** DTOs aligned with backend/app/main.py and workflow_registry.py. */
 data class CreateJobRequest(
     val type: String,
     val prompt: String,
@@ -19,10 +19,11 @@ data class CreateJobRequest(
 )
 
 data class WorkflowParameter(
-    val name: String,
     val type: String,
-    val required: Boolean = false,
+    val required: Boolean = true,
     val default: Any? = null,
+    val min_length: Int? = null,
+    val max_length: Int? = null,
     val minimum: Double? = null,
     val maximum: Double? = null,
     val choices: List<String>? = null
@@ -30,10 +31,10 @@ data class WorkflowParameter(
 
 data class WorkflowSummary(
     val id: String,
-    val name: String,
-    val description: String = "",
-    val media_type: String,
-    val parameters: List<WorkflowParameter> = emptyList()
+    val version: Int,
+    val label: String,
+    val type: String,
+    val parameters: Map<String, WorkflowParameter> = emptyMap()
 )
 
 data class WorkflowListResponse(val workflows: List<WorkflowSummary> = emptyList())
