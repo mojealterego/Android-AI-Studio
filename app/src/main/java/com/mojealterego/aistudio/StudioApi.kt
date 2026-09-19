@@ -1,5 +1,7 @@
 package com.mojealterego.aistudio
 
+import com.squareup.moshi.Moshi
+import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import okhttp3.OkHttpClient
 import retrofit2.Retrofit
 import retrofit2.converter.moshi.MoshiConverterFactory
@@ -117,10 +119,13 @@ interface StudioApi {
                 .readTimeout(30, TimeUnit.SECONDS)
                 .callTimeout(45, TimeUnit.SECONDS)
                 .build()
+            val moshi = Moshi.Builder()
+                .addLast(KotlinJsonAdapterFactory())
+                .build()
             return Retrofit.Builder()
                 .baseUrl(normalized)
                 .client(client)
-                .addConverterFactory(MoshiConverterFactory.create())
+                .addConverterFactory(MoshiConverterFactory.create(moshi))
                 .build()
                 .create(StudioApi::class.java)
         }
