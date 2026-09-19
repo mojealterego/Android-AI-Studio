@@ -10,13 +10,15 @@ from fastapi import FastAPI, Header, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
+from .workflow_registry import registry
+
 COMFYUI = os.getenv("COMFYUI_BASE_URL", "http://127.0.0.1:8188").rstrip("/")
 API_KEY = os.getenv("API_KEY", "").strip()
 MAX_PROMPT_LENGTH = int(os.getenv("MAX_PROMPT_LENGTH", "4000"))
 MAX_WORKFLOW_NODES = int(os.getenv("MAX_WORKFLOW_NODES", "250"))
 MAX_TRACKED_JOBS = int(os.getenv("MAX_TRACKED_JOBS", "500"))
 
-app = FastAPI(title="AI Studio API", version="0.1.2")
+app = FastAPI(title="AI Studio API", version="0.2.0")
 origins = [x.strip() for x in os.getenv("CORS_ORIGINS", "").split(",") if x.strip()]
 app.add_middleware(CORSMiddleware, allow_origins=origins or [], allow_credentials=False,
                    allow_methods=["GET", "POST"], allow_headers=["Authorization", "Content-Type"])
@@ -25,13 +27,17 @@ app.add_middleware(CORSMiddleware, allow_origins=origins or [], allow_credential
 jobs: dict[str, dict[str, Any]] = {}
 
 class CreateJob(BaseModel):
+    """Legacy v1 request. Kept temporarily for existing clients."""
     type: Literal["IMAGE", "VIDEO"]
     prompt: str = Field(min_length=1, max_length=MAX_PROMPT_LENGTH)
     negativePrompt: str = Field(default="", max_length=MAX_PROMPT_LENGTH)
-    workflow: dict[str, Any] = Field(description="Temporary compatibility input; replace with server-owned workflow IDs")
+    workflow: dict[str, Any] = Field(description="Legacy compatibility input; migrate to server-owned workflow IDs")
+
+class CreateJobV2(BaseModel):
+    workflow_id: str = Field(min_length=1, max_length=64, pattern=r"^[a-z][a-z0-9_-]{0,63}$")
+    parameters: dict[str, Any] = Field(default_factory=dict)
 
 async def authorize(authorization: str | None = Header(default=None)) -> None:
-    # Fail closed: never expose protected endpoints without an explicit server secret.
     if not API_KEY:
         raise HTTPException(status_code=503, detail="Backend API_KEY is not configured")
     expected = f"Bearer {API_KEY}"
@@ -45,8 +51,18 @@ async def comfy_request(method: str, path: str, **kwargs: Any) -> Any:
             response.raise_for_status()
             return response.json() if response.content else {}
     except httpx.HTTPError as exc:
-        # Avoid leaking upstream URLs, response bodies, or credentials to clients.
         raise HTTPException(status_code=502, detail=f"ComfyUI request failed ({exc.__class__.__name__})") from exc
+
+def store_job(prompt_id: str, client_id: str, media_type: str) -> dict[str, Any]:
+    if not prompt_id:
+        raise HTTPException(status_code=502, detail="ComfyUI did not return prompt_id")
+    if len(jobs) >= MAX_TRACKED_JOBS:
+        raise HTTPException(status_code=503, detail="Job capacity reached; restart or clear completed jobs")
+    job_id = str(uuid.uuid4())
+    job = {"id": job_id, "prompt_id": prompt_id, "client_id": client_id,
+           "type": media_type, "status": "QUEUED", "progress": 0.0}
+    jobs[job_id] = job
+    return job
 
 @app.get("/api/health")
 async def health():
@@ -56,6 +72,25 @@ async def health():
     except HTTPException:
         return {"status": "degraded", "comfyui": "unreachable"}
 
+@app.get("/api/v2/workflows", dependencies=[Depends(authorize)])
+async def list_workflows():
+    """Return only server-configured workflows; never expose template graphs."""
+    return {"workflows": registry.public_list()}
+
+@app.post("/api/v2/jobs", dependencies=[Depends(authorize)])
+async def create_job_v2(request: CreateJobV2):
+    # Build from a server-owned template. No client-supplied graph is accepted here.
+    graph = registry.build(request.workflow_id, request.parameters)
+    if len(graph) > MAX_WORKFLOW_NODES:
+        raise HTTPException(status_code=422, detail="Workflow exceeds backend node limit")
+    if len(jobs) >= MAX_TRACKED_JOBS:
+        raise HTTPException(status_code=503, detail="Job capacity reached; restart or clear completed jobs")
+    client_id = str(uuid.uuid4())
+    result = await comfy_request("POST", "/prompt", json={"prompt": graph, "client_id": client_id})
+    spec = next((item for item in registry.public_list() if item["id"] == request.workflow_id), None)
+    media_type = spec["type"] if spec else "IMAGE"
+    return store_job(result.get("prompt_id"), client_id, media_type)
+
 @app.post("/api/jobs", dependencies=[Depends(authorize)])
 async def create_job(request: CreateJob):
     if not request.workflow:
@@ -64,18 +99,10 @@ async def create_job(request: CreateJob):
         raise HTTPException(status_code=413, detail="Workflow has too many nodes")
     if len(jobs) >= MAX_TRACKED_JOBS:
         raise HTTPException(status_code=503, detail="Job capacity reached; restart or clear completed jobs")
-
-    # Security boundary still pending: client workflows are a compatibility path.
-    # Production deployment must replace this with server-owned, allowlisted templates.
+    # Legacy security boundary remains: migrate clients to /api/v2/jobs before disabling v1.
     client_id = str(uuid.uuid4())
     result = await comfy_request("POST", "/prompt", json={"prompt": request.workflow, "client_id": client_id})
-    prompt_id = result.get("prompt_id")
-    if not prompt_id:
-        raise HTTPException(status_code=502, detail="ComfyUI did not return prompt_id")
-    job_id = str(uuid.uuid4())
-    jobs[job_id] = {"id": job_id, "prompt_id": prompt_id, "client_id": client_id,
-                    "type": request.type, "status": "QUEUED", "progress": 0.0}
-    return jobs[job_id]
+    return store_job(result.get("prompt_id"), client_id, request.type)
 
 @app.get("/api/jobs", dependencies=[Depends(authorize)])
 async def list_jobs():
