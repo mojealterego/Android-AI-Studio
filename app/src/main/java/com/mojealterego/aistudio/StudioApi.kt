@@ -10,38 +10,70 @@ import retrofit2.http.POST
 import retrofit2.http.Path
 import java.util.concurrent.TimeUnit
 
-/** Wire models matching docs/backend-api.md. */
+/** DTOs aligned with backend/app/main.py. */
 data class CreateJobRequest(
     val type: String,
     val prompt: String,
     val negativePrompt: String = "",
-    val workflowId: String,
-    val parameters: Map<String, String> = emptyMap()
+    val workflow: Map<String, Any>
+)
+
+data class JobOutput(
+    val filename: String? = null,
+    val subfolder: String? = null,
+    val type: String? = null,
+    val format: String? = null
 )
 
 data class JobResponse(
     val id: String,
+    val prompt_id: String? = null,
+    val type: String? = null,
     val status: String,
     val progress: Double = 0.0,
-    val resultUrl: String? = null,
+    val outputs: List<JobOutput> = emptyList(),
     val error: String? = null
 )
 
+data class JobResultResponse(
+    val id: String,
+    val outputs: List<JobOutput> = emptyList()
+)
+
 interface StudioApi {
-    @GET("api/health") suspend fun health(): Map<String, String>
-    @POST("api/jobs") suspend fun createJob(
+    @GET("api/health")
+    suspend fun health(): Map<String, String>
+
+    @POST("api/jobs")
+    suspend fun createJob(
         @Header("Authorization") authorization: String,
         @Body request: CreateJobRequest
     ): JobResponse
-    @GET("api/jobs/{id}") suspend fun getJob(
+
+    @GET("api/jobs/{id}")
+    suspend fun getJob(
         @Header("Authorization") authorization: String,
         @Path("id") id: String
     ): JobResponse
 
+    @GET("api/jobs/{id}/result")
+    suspend fun getResult(
+        @Header("Authorization") authorization: String,
+        @Path("id") id: String
+    ): JobResultResponse
+
+    @GET("api/jobs")
+    suspend fun listJobs(
+        @Header("Authorization") authorization: String
+    ): List<JobResponse>
+
     companion object {
         fun create(baseUrl: String): StudioApi {
-            require(baseUrl.startsWith("https://")) { "Backend musi używać HTTPS." }
-            val normalized = baseUrl.trimEnd('/') + "/"
+            val normalizedInput = baseUrl.trim()
+            require(normalizedInput.startsWith("https://", ignoreCase = true)) {
+                "Backend musi używać HTTPS."
+            }
+            val normalized = normalizedInput.trimEnd('/') + "/"
             val client = OkHttpClient.Builder()
                 .connectTimeout(15, TimeUnit.SECONDS)
                 .readTimeout(30, TimeUnit.SECONDS)
