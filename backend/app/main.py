@@ -10,10 +10,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 COMFYUI = os.getenv("COMFYUI_BASE_URL", "http://127.0.0.1:8188").rstrip("/")
-API_KEY = os.getenv("API_KEY", "")
+API_KEY = os.getenv("API_KEY", "").strip()
 MAX_PROMPT_LENGTH = int(os.getenv("MAX_PROMPT_LENGTH", "4000"))
 
-app = FastAPI(title="AI Studio API", version="0.1.0")
+app = FastAPI(title="AI Studio API", version="0.1.1")
 origins = [x.strip() for x in os.getenv("CORS_ORIGINS", "").split(",") if x.strip()]
 app.add_middleware(CORSMiddleware, allow_origins=origins or [], allow_credentials=False,
                    allow_methods=["GET", "POST"], allow_headers=["Authorization", "Content-Type"])
@@ -28,7 +28,10 @@ class CreateJob(BaseModel):
     workflow: dict[str, Any] = Field(description="Validated ComfyUI API-format workflow")
 
 async def authorize(authorization: str | None = Header(default=None)) -> None:
-    if API_KEY and authorization != f"Bearer {API_KEY}":
+    # Fail closed: never expose protected endpoints without an explicit server secret.
+    if not API_KEY:
+        raise HTTPException(status_code=503, detail="Backend API_KEY is not configured")
+    if authorization != f"Bearer {API_KEY}":
         raise HTTPException(status_code=401, detail="Unauthorized")
 
 async def comfy_request(method: str, path: str, **kwargs: Any) -> Any:
