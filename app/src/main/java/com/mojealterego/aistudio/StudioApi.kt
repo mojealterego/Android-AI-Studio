@@ -18,6 +18,31 @@ data class CreateJobRequest(
     val workflow: Map<String, Any>
 )
 
+data class WorkflowParameter(
+    val name: String,
+    val type: String,
+    val required: Boolean = false,
+    val default: Any? = null,
+    val minimum: Double? = null,
+    val maximum: Double? = null,
+    val choices: List<String>? = null
+)
+
+data class WorkflowSummary(
+    val id: String,
+    val name: String,
+    val description: String = "",
+    val media_type: String,
+    val parameters: List<WorkflowParameter> = emptyList()
+)
+
+data class WorkflowListResponse(val workflows: List<WorkflowSummary> = emptyList())
+
+data class CreateJobV2Request(
+    val workflow_id: String,
+    val parameters: Map<String, Any?> = emptyMap()
+)
+
 data class JobOutput(
     val filename: String? = null,
     val subfolder: String? = null,
@@ -44,6 +69,18 @@ interface StudioApi {
     @GET("api/health")
     suspend fun health(): Map<String, String>
 
+    @GET("api/v2/workflows")
+    suspend fun listWorkflows(
+        @Header("Authorization") authorization: String
+    ): WorkflowListResponse
+
+    @POST("api/v2/jobs")
+    suspend fun createJobV2(
+        @Header("Authorization") authorization: String,
+        @Body request: CreateJobV2Request
+    ): JobResponse
+
+    /** Legacy endpoint; migrate callers to createJobV2. */
     @POST("api/jobs")
     suspend fun createJob(
         @Header("Authorization") authorization: String,
