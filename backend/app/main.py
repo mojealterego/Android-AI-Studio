@@ -14,16 +14,18 @@ from .workflow_registry import registry
 
 COMFYUI = os.getenv("COMFYUI_BASE_URL", "http://127.0.0.1:8188").rstrip("/")
 API_KEY = os.getenv("API_KEY", "").strip()
+# A single-instance principal is deliberately not a multi-user identity system.
+INSTANCE_OWNER_ID = os.getenv("INSTANCE_OWNER_ID", "single-instance").strip()
 MAX_PROMPT_LENGTH = int(os.getenv("MAX_PROMPT_LENGTH", "4000"))
 MAX_WORKFLOW_NODES = int(os.getenv("MAX_WORKFLOW_NODES", "250"))
 MAX_TRACKED_JOBS = int(os.getenv("MAX_TRACKED_JOBS", "500"))
 
-app = FastAPI(title="AI Studio API", version="0.2.2")
+app = FastAPI(title="AI Studio API", version="0.2.3")
 origins = [x.strip() for x in os.getenv("CORS_ORIGINS", "").split(",") if x.strip()]
 app.add_middleware(CORSMiddleware, allow_origins=origins or [], allow_credentials=False,
                    allow_methods=["GET", "POST"], allow_headers=["Authorization", "Content-Type"])
 
-# Demo in-memory index. Use PostgreSQL/Redis before multi-user production deployment.
+# Demo in-memory index. Use a shared transactional database for durable deployment.
 jobs: dict[str, dict[str, Any]] = {}
 
 class CreateJob(BaseModel):
@@ -38,12 +40,13 @@ class CreateJobV2(BaseModel):
     workflow_id: str = Field(min_length=1, max_length=64, pattern=r"^[a-z][a-z0-9_-]{0,63}$")
     parameters: dict[str, Any] = Field(default_factory=dict)
 
-async def authorize(authorization: str | None = Header(default=None)) -> None:
+async def authorize(authorization: str | None = Header(default=None)) -> str:
     if not API_KEY:
         raise HTTPException(status_code=503, detail="Backend API_KEY is not configured")
     expected = f"Bearer {API_KEY}"
     if authorization is None or not hmac.compare_digest(authorization, expected):
         raise HTTPException(status_code=401, detail="Unauthorized")
+    return INSTANCE_OWNER_ID
 
 async def comfy_request(method: str, path: str, **kwargs: Any) -> Any:
     try:
@@ -61,8 +64,14 @@ def store_job(prompt_id: str, client_id: str, media_type: str) -> dict[str, Any]
         raise HTTPException(status_code=503, detail="Job capacity reached; restart or clear completed jobs")
     job_id = str(uuid.uuid4())
     job = {"id": job_id, "prompt_id": prompt_id, "client_id": client_id,
-           "type": media_type, "status": "QUEUED", "progress": 0.0}
+           "owner_id": INSTANCE_OWNER_ID, "type": media_type, "status": "QUEUED", "progress": 0.0}
     jobs[job_id] = job
+    return job
+
+def owned_job(job_id: str, principal_id: str) -> dict[str, Any]:
+    job = jobs.get(job_id)
+    if job is None or not hmac.compare_digest(str(job.get("owner_id", "")), principal_id):
+        raise HTTPException(status_code=404, detail="Job not found")
     return job
 
 @app.get("/api/health")
@@ -81,34 +90,27 @@ async def list_workflows():
 @app.post("/api/v2/jobs", dependencies=[Depends(authorize)])
 async def create_job_v2(request: CreateJobV2):
     """Fail closed until human approval is bound to actor, task and immutable inputs."""
-    raise HTTPException(
-        status_code=503,
-        detail={
-            "code": "CONSENT_ENFORCEMENT_NOT_CONFIGURED",
-            "message": "Job dispatch is disabled until authenticated, task-scoped consent is enforced.",
-        },
-    )
+    raise HTTPException(status_code=503, detail={
+        "code": "CONSENT_ENFORCEMENT_NOT_CONFIGURED",
+        "message": "Job dispatch is disabled until authenticated, task-scoped consent is enforced.",
+    })
 
 @app.post("/api/jobs", dependencies=[Depends(authorize)])
 async def create_job(request: CreateJob):
     """Legacy arbitrary-graph dispatch is permanently disabled."""
-    raise HTTPException(
-        status_code=410,
-        detail={
-            "code": "LEGACY_DISPATCH_DISABLED",
-            "message": "Legacy arbitrary workflow dispatch is disabled. Use the consent-aware v2 API when available.",
-        },
-    )
+    raise HTTPException(status_code=410, detail={
+        "code": "LEGACY_DISPATCH_DISABLED",
+        "message": "Legacy arbitrary workflow dispatch is disabled. Use the consent-aware v2 API when available.",
+    })
 
-@app.get("/api/jobs", dependencies=[Depends(authorize)])
-async def list_jobs():
-    return list(jobs.values())
+@app.get("/api/jobs")
+async def list_jobs(principal_id: str = Depends(authorize)):
+    return [job for job in jobs.values() if hmac.compare_digest(str(job.get("owner_id", "")), principal_id)]
 
-@app.get("/api/jobs/{job_id}", dependencies=[Depends(authorize)])
-async def get_job(job_id: str):
-    job = jobs.get(job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
+@app.get("/api/jobs/{job_id}")
+async def get_job(job_id: str, principal_id: str = Depends(authorize)):
+    # Ownership is checked before any upstream ComfyUI request.
+    job = owned_job(job_id, principal_id)
     history = await comfy_request("GET", f"/history/{job['prompt_id']}")
     item = history.get(job["prompt_id"], {})
     status = item.get("status", {})
@@ -128,9 +130,11 @@ async def get_job(job_id: str):
         job["status"] = "FAILED"
     return job
 
-@app.get("/api/jobs/{job_id}/result", dependencies=[Depends(authorize)])
-async def get_result(job_id: str):
-    job = await get_job(job_id)
+@app.get("/api/jobs/{job_id}/result")
+async def get_result(job_id: str, principal_id: str = Depends(authorize)):
+    # Do not delegate before authorization: avoid any upstream call for foreign IDs.
+    owned_job(job_id, principal_id)
+    job = await get_job(job_id, principal_id)
     if job["status"] != "COMPLETED":
         raise HTTPException(status_code=409, detail="Job is not complete")
     return {"id": job_id, "outputs": job.get("outputs", [])}
