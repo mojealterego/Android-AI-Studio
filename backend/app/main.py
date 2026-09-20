@@ -18,7 +18,7 @@ MAX_PROMPT_LENGTH = int(os.getenv("MAX_PROMPT_LENGTH", "4000"))
 MAX_WORKFLOW_NODES = int(os.getenv("MAX_WORKFLOW_NODES", "250"))
 MAX_TRACKED_JOBS = int(os.getenv("MAX_TRACKED_JOBS", "500"))
 
-app = FastAPI(title="AI Studio API", version="0.2.1")
+app = FastAPI(title="AI Studio API", version="0.2.2")
 origins = [x.strip() for x in os.getenv("CORS_ORIGINS", "").split(",") if x.strip()]
 app.add_middleware(CORSMiddleware, allow_origins=origins or [], allow_credentials=False,
                    allow_methods=["GET", "POST"], allow_headers=["Authorization", "Content-Type"])
@@ -27,11 +27,11 @@ app.add_middleware(CORSMiddleware, allow_origins=origins or [], allow_credential
 jobs: dict[str, dict[str, Any]] = {}
 
 class CreateJob(BaseModel):
-    """Legacy v1 request. Kept temporarily for existing clients."""
+    """Legacy v1 request. Dispatch is disabled; migrate clients to a consent-aware API."""
     type: Literal["IMAGE", "VIDEO"]
     prompt: str = Field(min_length=1, max_length=MAX_PROMPT_LENGTH)
     negativePrompt: str = Field(default="", max_length=MAX_PROMPT_LENGTH)
-    workflow: dict[str, Any] = Field(description="Legacy compatibility input; migrate to server-owned workflow IDs")
+    workflow: dict[str, Any] = Field(description="Legacy compatibility input; dispatch is disabled")
 
 class CreateJobV2(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -80,29 +80,25 @@ async def list_workflows():
 
 @app.post("/api/v2/jobs", dependencies=[Depends(authorize)])
 async def create_job_v2(request: CreateJobV2):
-    # Resolve metadata and build from the same validated server-owned specification.
-    spec = registry.get_spec(request.workflow_id)
-    graph = registry.build(request.workflow_id, request.parameters)
-    if len(graph) > MAX_WORKFLOW_NODES:
-        raise HTTPException(status_code=422, detail="Workflow exceeds backend node limit")
-    if len(jobs) >= MAX_TRACKED_JOBS:
-        raise HTTPException(status_code=503, detail="Job capacity reached; restart or clear completed jobs")
-    client_id = str(uuid.uuid4())
-    result = await comfy_request("POST", "/prompt", json={"prompt": graph, "client_id": client_id})
-    return store_job(result.get("prompt_id"), client_id, spec.media_type)
+    """Fail closed until human approval is bound to actor, task and immutable inputs."""
+    raise HTTPException(
+        status_code=503,
+        detail={
+            "code": "CONSENT_ENFORCEMENT_NOT_CONFIGURED",
+            "message": "Job dispatch is disabled until authenticated, task-scoped consent is enforced.",
+        },
+    )
 
 @app.post("/api/jobs", dependencies=[Depends(authorize)])
 async def create_job(request: CreateJob):
-    if not request.workflow:
-        raise HTTPException(status_code=422, detail="Workflow must not be empty")
-    if len(request.workflow) > MAX_WORKFLOW_NODES:
-        raise HTTPException(status_code=413, detail="Workflow has too many nodes")
-    if len(jobs) >= MAX_TRACKED_JOBS:
-        raise HTTPException(status_code=503, detail="Job capacity reached; restart or clear completed jobs")
-    # Legacy security boundary remains: migrate clients to /api/v2/jobs before disabling v1.
-    client_id = str(uuid.uuid4())
-    result = await comfy_request("POST", "/prompt", json={"prompt": request.workflow, "client_id": client_id})
-    return store_job(result.get("prompt_id"), client_id, request.type)
+    """Legacy arbitrary-graph dispatch is permanently disabled."""
+    raise HTTPException(
+        status_code=410,
+        detail={
+            "code": "LEGACY_DISPATCH_DISABLED",
+            "message": "Legacy arbitrary workflow dispatch is disabled. Use the consent-aware v2 API when available.",
+        },
+    )
 
 @app.get("/api/jobs", dependencies=[Depends(authorize)])
 async def list_jobs():
