@@ -1,6 +1,10 @@
 import pytest
 
-from app.consent_binding import action_digest, consent_resource
+from app.consent_binding import (
+    action_digest,
+    consent_resource,
+    workflow_resource,
+)
 
 
 def test_digest_is_stable_across_dictionary_order():
@@ -25,3 +29,10 @@ def test_resource_contains_workflow_and_digest():
     resource = consent_resource("image_basic", {"width": 512})
     assert resource.startswith("workflow:image_basic:sha256:")
     assert len(resource.rsplit(":", 1)[-1]) == 64
+
+
+def test_workflow_resource_is_compatible_alias():
+    parameters = {"width": 512, "steps": 20}
+    assert workflow_resource("image_basic", parameters) == consent_resource(
+        "image_basic", parameters
+    )
