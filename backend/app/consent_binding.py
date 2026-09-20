@@ -31,3 +31,8 @@ def action_digest(workflow_id: str, parameters: dict[str, Any]) -> str:
 def consent_resource(workflow_id: str, parameters: dict[str, Any]) -> str:
     """Build the exact resource key that an approval must authorize."""
     return f"workflow:{workflow_id}:sha256:{action_digest(workflow_id, parameters)}"
+
+
+def workflow_resource(workflow_id: str, parameters: dict[str, Any]) -> str:
+    """Backward-compatible name used by consent_dispatch."""
+    return consent_resource(workflow_id, parameters)
