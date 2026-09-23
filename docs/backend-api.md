@@ -60,3 +60,16 @@ The legacy arbitrary-graph POST /api/jobs endpoint remains disabled with HTTP 41
 ## Production boundary
 
 The local APPROVAL_TOKENS_JSON mapping is a deployment-level approval authenticator, not a full enterprise identity provider. It establishes a trusted server-derived approver subject but does not provide identity proofing, MFA, federation, or non-repudiation. Those controls belong in the next production identity layer.
+
+### Media delivery
+
+Completed job outputs are exposed only through an authenticated backend media proxy:
+
+- `GET /api/jobs/{job_id}/media/{index}` requires the normal API credential and enforces job ownership before contacting ComfyUI.
+- The client addresses media by a server-assigned output index; it never supplies an arbitrary ComfyUI filename as an upstream request.
+- The backend validates the stored filename, subfolder and media type, streams bytes from private ComfyUI `/view`, and does not expose the ComfyUI host to Android.
+- Media responses are private/no-store and include `X-Content-Type-Options: nosniff`.
+- `MEDIA_MAX_BYTES` limits the maximum proxied object size (default 250 MiB).
+- Android downloads through the authenticated proxy and opens the resulting file through an app-cache-only `FileProvider`.
+
+The proxy is intentionally not a public object-storage URL or bearerless download link. A future multi-user deployment should bind media access to the same external identity/tenant model used for job ownership.
