@@ -4,6 +4,7 @@ import hmac
 import os
 import uuid
 from typing import Literal, Any
+from datetime import datetime, timedelta, timezone
 
 import httpx
 from fastapi import FastAPI, Header, HTTPException, Depends
@@ -119,10 +120,20 @@ async def comfy_request(method: str, path: str, **kwargs: Any) -> Any:
             response = await client.request(method, f"{COMFYUI}{path}", **kwargs)
             response.raise_for_status()
             return response.json() if response.content else {}
+    except (httpx.TimeoutException, httpx.ConnectError, httpx.RemoteProtocolError) as exc:
+        raise HTTPException(
+            status_code=502,
+            detail={"code": "COMFYUI_AMBIGUOUS", "type": exc.__class__.__name__},
+        ) from exc
+    except httpx.HTTPStatusError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail={"code": "COMFYUI_REJECTED", "status": exc.response.status_code},
+        ) from exc
     except httpx.HTTPError as exc:
         raise HTTPException(
             status_code=502,
-            detail=f"ComfyUI request failed ({exc.__class__.__name__})",
+            detail={"code": "COMFYUI_AMBIGUOUS", "type": exc.__class__.__name__},
         ) from exc
 
 
@@ -144,7 +155,7 @@ def _receipt(
         action_type="workflow.dispatch",
         resource=resource,
         status=status,
-        occurred_at=__import__("datetime").datetime.now(__import__("datetime").timezone.utc),
+        occurred_at=datetime.now(timezone.utc),
         grant_id=grant_id,
         task_id=task_id,
         request_digest=request_digest,
@@ -263,7 +274,6 @@ async def create_approval(
         raise HTTPException(status_code=409, detail="Approval preview does not match request")
     if request.duration == Duration.ONCE and not request.task_id:
         raise HTTPException(status_code=422, detail="One-time approval requires a task")
-    from datetime import datetime, timedelta, timezone
     now = datetime.now(timezone.utc)
     expires = now + timedelta(seconds=request.expires_in_seconds)
     grant_id = str(uuid.uuid4())
@@ -349,6 +359,34 @@ async def create_job_v2(request: CreateJobV2, principal_id: str) -> dict[str, An
 
     client_id = request.client_id or str(uuid.uuid4())
     try:
+        prior = RECEIPT_STORE.list_owned(principal_id, task_id=request.task_id, limit=10)
+        if not any(
+            row["resource"] == resource and row["grant_id"] == request.grant_id
+            and row["status"] == ActionStatus.AUTHORIZED.value
+            for row in prior
+        ):
+            RECEIPT_STORE.append(
+                _receipt(
+                    actor_id=principal_id,
+                    status=ActionStatus.REQUESTED,
+                    resource=resource,
+                    grant_id=request.grant_id,
+                    task_id=request.task_id,
+                    request_digest=digest,
+                    provenance="dispatch-core",
+                )
+            )
+            RECEIPT_STORE.append(
+                _receipt(
+                    actor_id=principal_id,
+                    status=ActionStatus.AUTHORIZED,
+                    resource=resource,
+                    grant_id=request.grant_id,
+                    task_id=request.task_id,
+                    request_digest=digest,
+                    provenance="grant-revalidated",
+                )
+            )
         RECEIPT_STORE.append(
             _receipt(
                 actor_id=principal_id,
@@ -367,23 +405,28 @@ async def create_job_v2(request: CreateJobV2, principal_id: str) -> dict[str, An
             json={"prompt": graph, "client_id": client_id},
         )
     except HTTPException as exc:
+        detail = exc.detail if isinstance(exc.detail, dict) else {}
+        status = ActionStatus.UNKNOWN if detail.get("code") == "COMFYUI_AMBIGUOUS" else ActionStatus.FAILED
+        code = "COMFYUI_AMBIGUOUS" if status == ActionStatus.UNKNOWN else "COMFYUI_REJECTED"
         try:
             RECEIPT_STORE.append(
                 _receipt(
                     actor_id=principal_id,
-                    status=ActionStatus.UNKNOWN,
+                    status=status,
                     resource=resource,
                     grant_id=request.grant_id,
                     task_id=request.task_id,
                     request_digest=digest,
                     external_reference=client_id,
-                    error_code="COMFYUI_AMBIGUOUS",
-                    provenance="remote-outcome-uncertain",
+                    error_code=code,
+                    provenance="remote-outcome-uncertain" if status == ActionStatus.UNKNOWN else "server-observed-response",
                 )
             )
         except Exception:
             pass
-        raise HTTPException(status_code=502, detail="ComfyUI outcome is unknown; do not retry this grant") from exc
+        if status == ActionStatus.UNKNOWN:
+            raise HTTPException(status_code=502, detail="ComfyUI outcome is unknown; do not retry this grant") from exc
+        raise HTTPException(status_code=502, detail="ComfyUI rejected the dispatch") from exc
 
     prompt_id = response.get("prompt_id") if isinstance(response, dict) else None
     if not prompt_id:
