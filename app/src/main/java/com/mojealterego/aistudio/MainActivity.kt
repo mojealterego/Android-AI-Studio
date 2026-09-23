@@ -11,6 +11,17 @@ import android.provider.MediaStore
 import androidx.core.content.FileProvider
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import android.provider.OpenableColumns
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -37,10 +48,32 @@ import java.io.IOException
 import org.json.JSONObject
 import java.util.UUID
 
+private val Obsidian = Color(0xFF080807)
+private val ObsidianSurface = Color(0xFF12100D)
+private val ObsidianRaised = Color(0xFF1A1712)
+private val Gold24 = Color(0xFFD4AF37)
+private val GoldLight = Color(0xFFF2D675)
+private val Ivory = Color(0xFFF3EFE3)
+private val MutedGold = Color(0xFF9F8741)
+
+private val StudioColors = darkColorScheme(
+    primary = Gold24,
+    onPrimary = Obsidian,
+    secondary = GoldLight,
+    onSecondary = Obsidian,
+    background = Obsidian,
+    onBackground = Ivory,
+    surface = ObsidianSurface,
+    onSurface = Ivory,
+    surfaceVariant = ObsidianRaised,
+    onSurfaceVariant = Color(0xFFC9C2B1),
+    outline = MutedGold
+)
+
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContent { MaterialTheme { StudioScreen() } }
+        setContent { MaterialTheme(colorScheme = StudioColors) { StudioScreen() } }
     }
 }
 
@@ -64,6 +97,12 @@ private fun StudioScreen() {
     var taskId by remember { mutableStateOf<String?>(null) }
     var previewBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var previewName by remember { mutableStateOf<String?>(null) }
+    var modelFiles by remember { mutableStateOf<List<String>>(emptyList()) }
+    val modelPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+        val names = uris.mapNotNull { uri -> queryDisplayName(context, uri) ?: uri.lastPathSegment }
+        modelFiles = (modelFiles + names).distinct()
+        status = "Dodano " + names.size + " plików modeli. Katalog: GGUF / WAN / checkpoints."
+    }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val selected = workflows.firstOrNull { it.id == selectedId }
@@ -424,7 +463,21 @@ private fun StudioScreen() {
         }
     }
 
-    Scaffold(topBar = { TopAppBar(title = { Text("AI STUDIO") }) }) { insets ->
+    Scaffold(
+        containerColor = Obsidian,
+        topBar = {
+            CenterAlignedTopAppBar(
+                title = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("✦", color = Gold24)
+                        Spacer(Modifier.width(8.dp))
+                        Text("AI STUDIO", fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold, color = Ivory)
+                    }
+                },
+                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Obsidian)
+            )
+        }
+    ) { insets ->
         Column(
             modifier = Modifier
                 .padding(insets)
@@ -433,7 +486,43 @@ private fun StudioScreen() {
                 .padding(20.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            Text("PRIVATE GENERATION WORKSPACE", style = MaterialTheme.typography.labelMedium)
+            Text("PRIVATE GENERATION WORKSPACE", style = MaterialTheme.typography.labelMedium, color = Gold24, fontFamily = FontFamily.Serif)
+            Text("OBSIDIAN / 24K GOLD", style = MaterialTheme.typography.labelSmall, color = GoldLight, fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold)
+
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                StudioModeCard("IMAGE", "GENERATE IMAGE", "SDXL · FLUX · GGUF", mode == "IMAGE", {
+                    mode = "IMAGE"
+                    val next = workflows.firstOrNull { it.type.equals(mode, true) }
+                    if (next != null) {
+                        selectedId = next.id
+                        parameterValues = next.parameters.mapValues { (_, p) -> p.default?.toString().orEmpty() }
+                    }
+                    resetApproval()
+                }, Modifier.weight(1f))
+                StudioModeCard("VIDEO", "GENERATE VIDEO", "WAN · VIDEO MODELS", mode == "VIDEO", {
+                    mode = "VIDEO"
+                    val next = workflows.firstOrNull { it.type.equals(mode, true) }
+                    if (next != null) {
+                        selectedId = next.id
+                        parameterValues = next.parameters.mapValues { (_, p) -> p.default?.toString().orEmpty() }
+                    }
+                    resetApproval()
+                }, Modifier.weight(1f))
+            }
+
+            DarkCard {
+                Text("MODEL VAULT", color = Gold24, fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold)
+                Text("Miejsce na GGUF, WAN, safetensors, checkpoints i modele video.", color = Ivory)
+                Text("GGUF: " + modelFiles.count { it.lowercase().endsWith(".gguf") } + "  ·  WAN: " + modelFiles.count { it.lowercase().contains("wan") } + "  ·  Wszystkie: " + modelFiles.size, color = MutedGold)
+                Button(
+                    onClick = { modelPicker.launch(arrayOf("application/octet-stream", "application/*")) },
+                    colors = ButtonDefaults.buttonColors(containerColor = Gold24, contentColor = Obsidian),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("DODAJ PLIKI MODELI", fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold)
+                }
+                modelFiles.takeLast(4).forEach { Text("• " + it, color = Color(0xFFC9C2B1), style = MaterialTheme.typography.bodySmall) }
+            }
 
             SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
                 listOf("IMAGE" to "Obraz", "VIDEO" to "Wideo").forEachIndexed { index, pair ->
@@ -729,6 +818,41 @@ private fun StudioScreen() {
             )
         }
     }
+}
+
+@Composable
+private fun StudioModeCard(code: String, title: String, subtitle: String, selected: Boolean, onClick: () -> Unit, modifier: Modifier) {
+    Column(
+        modifier
+            .clip(RoundedCornerShape(12.dp))
+            .background(if (selected) ObsidianRaised else ObsidianSurface)
+            .border(1.dp, if (selected) Gold24 else Color(0xFF332F27), RoundedCornerShape(12.dp))
+            .clickable(onClick = onClick)
+            .padding(14.dp)
+    ) {
+        Text(code, color = Gold24, fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold)
+        Spacer(Modifier.height(5.dp))
+        Text(title, color = Ivory, fontFamily = FontFamily.Serif)
+        Text(subtitle, color = MutedGold, style = MaterialTheme.typography.bodySmall)
+    }
+}
+
+@Composable
+private fun DarkCard(content: @Composable ColumnScope.() -> Unit) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = ObsidianSurface),
+        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF332F27)),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp), content = content)
+    }
+}
+
+private fun queryDisplayName(context: android.content.Context, uri: Uri): String? {
+    context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use {
+        if (it.moveToFirst()) return it.getString(0)
+    }
+    return null
 }
 
 private fun errorMessage(error: Exception): String = when (error) {
