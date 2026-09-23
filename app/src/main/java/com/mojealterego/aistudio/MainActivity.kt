@@ -46,7 +46,7 @@ private fun StudioScreen() {
     val scope = rememberCoroutineScope()
     val selected = workflows.firstOrNull { it.id == selectedId }
 
-    fun authorization() = "Bearer §{apiKey.trim()}"
+    fun authorization() = "Bearer ${apiKey.trim()}"
     fun api(): StudioApi = StudioApi.create(server)
 
     fun resetApproval() {
@@ -70,7 +70,7 @@ private fun StudioScreen() {
                 selectedId = first?.id
                 parameterValues = first?.parameters?.mapValues { (_, p) -> p.default?.toString().orEmpty() } ?: emptyMap()
                 resetApproval()
-                status = if (workflows.isEmpty()) "Backend nie zwrócił dostępnych workflow." else "Pobrano §{workflows.size} workflow."
+                status = if (workflows.isEmpty()) "Backend nie zwrócił dostępnych workflow." else "Pobrano ${workflows.size} workflow."
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -89,44 +89,44 @@ private fun StudioScreen() {
             if (name.equals("negative_prompt", true) || name.equals("negative", true)) raw = negative
             if (raw.isBlank() && spec.default != null) raw = spec.default.toString()
             if (raw.isBlank() && spec.required) {
-                status = "Brakuje wymaganego parametru: §{name}"
+                status = "Brakuje wymaganego parametru: ${name}"
                 return null
             }
             if (raw.isBlank()) continue
             if (spec.min_length != null && raw.length < spec.min_length) {
-                status = "§{name}: tekst jest za krótki."
+                status = "${name}: tekst jest za krótki."
                 return null
             }
             if (spec.max_length != null && raw.length > spec.max_length) {
-                status = "§{name}: tekst jest za długi."
+                status = "${name}: tekst jest za długi."
                 return null
             }
             if (spec.choices != null && raw !in spec.choices) {
-                status = "§{name}: wybierz jedną z dozwolonych wartości."
+                status = "${name}: wybierz jedną z dozwolonych wartości."
                 return null
             }
             val value: Any? = when (spec.type.lowercase()) {
                 "integer", "int" -> raw.toLongOrNull() ?: run {
-                    status = "§{name}: oczekiwana liczba całkowita."
+                    status = "${name}: oczekiwana liczba całkowita."
                     return null
                 }
                 "number", "float", "double" -> raw.toDoubleOrNull() ?: run {
-                    status = "§{name}: oczekiwana liczba."
+                    status = "${name}: oczekiwana liczba."
                     return null
                 }
                 "boolean", "bool" -> raw.toBooleanStrictOrNull() ?: run {
-                    status = "§{name}: oczekiwana wartość true/false."
+                    status = "${name}: oczekiwana wartość true/false."
                     return null
                 }
                 else -> raw
             }
             val numeric = (value as? Number)?.toDouble()
             if (numeric != null && spec.minimum != null && numeric < spec.minimum) {
-                status = "§{name}: wartość poniżej minimum."
+                status = "${name}: wartość poniżej minimum."
                 return null
             }
             if (numeric != null && spec.maximum != null && numeric > spec.maximum) {
-                status = "§{name}: wartość powyżej maksimum."
+                status = "${name}: wartość powyżej maksimum."
                 return null
             }
             values[name] = value
@@ -210,7 +210,7 @@ private fun StudioScreen() {
                 job = response
                 preview = null
                 taskId = null
-                status = "Zadanie przyjęte: §{response.id} (§{response.status})."
+                status = "Zadanie przyjęte: ${response.id} (${response.status})."
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -235,7 +235,7 @@ private fun StudioScreen() {
                     "COMPLETED" -> "Generowanie zakończone."
                     "FAILED" -> "Backend zgłosił błąd generowania."
                     "UNKNOWN" -> "Stan zadania jest niepewny; nie wysyłaj ponownie tego samego jednorazowego zatwierdzenia."
-                    else -> "Generowanie w toku: §{"%.1f".format(refreshed.progress * 100)}%."
+                    else -> "Generowanie w toku: " + "%.1f".format(refreshed.progress * 100) + "%."
                 }
                 if (refreshed.status in setOf("COMPLETED", "FAILED", "UNKNOWN")) break
             } catch (e: CancellationException) {
@@ -336,7 +336,7 @@ private fun StudioScreen() {
                         })
                         Column(Modifier.weight(1f)) {
                             Text(workflow.label, style = MaterialTheme.typography.bodyLarge)
-                            Text("§{workflow.id} · v§{workflow.version}", style = MaterialTheme.typography.bodySmall)
+                            Text("${workflow.id} · v${workflow.version}", style = MaterialTheme.typography.bodySmall)
                         }
                     }
                 }
@@ -356,7 +356,7 @@ private fun StudioScreen() {
                                     value = current,
                                     onValueChange = {},
                                     readOnly = true,
-                                    label = { Text(if (spec.required) "§{name} *" else name) },
+                                    label = { Text(if (spec.required) "${name} *" else name) },
                                     trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
                                     modifier = Modifier.menuAnchor().fillMaxWidth()
                                 )
@@ -374,7 +374,7 @@ private fun StudioScreen() {
                             val checked = parameterValues[name]?.toBooleanStrictOrNull()
                                 ?: (spec.default as? Boolean ?: false)
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text(if (spec.required) "§{name} *" else name)
+                                Text(if (spec.required) "${name} *" else name)
                                 Switch(checked = checked, onCheckedChange = {
                                     parameterValues = parameterValues + (name to it.toString())
                                     resetApproval()
@@ -387,13 +387,13 @@ private fun StudioScreen() {
                                     parameterValues = parameterValues + (name to it)
                                     resetApproval()
                                 },
-                                label = { Text(if (spec.required) "§{name} *" else name) },
+                                label = { Text(if (spec.required) "${name} *" else name) },
                                 supportingText = {
                                     Text(
                                         listOfNotNull(
-                                            spec.minimum?.let { "min §{it}" },
-                                            spec.maximum?.let { "max §{it}" },
-                                            spec.max_length?.let { "max §{it} znaków" }
+                                            spec.minimum?.let { "min ${it}" },
+                                            spec.maximum?.let { "max ${it}" },
+                                            spec.max_length?.let { "max ${it} znaków" }
                                         ).joinToString(" · ")
                                     )
                                 },
@@ -420,14 +420,14 @@ private fun StudioScreen() {
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Text("PODGLĄD OPERACJI", style = MaterialTheme.typography.titleMedium)
-                        Text("Workflow: §{preview!!.workflow_id} · v§{preview!!.workflow_version}")
-                        Text("Typ: §{preview!!.media_type}")
-                        Text("Działanie: §{preview!!.action}")
-                        Text("Zakres: §{preview!!.resource}")
-                        Text("Skutek: §{preview!!.consequence}")
-                        Text("Zadanie: §{preview!!.task_id}")
+                        Text("Workflow: ${preview!!.workflow_id} · v${preview!!.workflow_version}")
+                        Text("Typ: ${preview!!.media_type}")
+                        Text("Działanie: ${preview!!.action}")
+                        Text("Zakres: ${preview!!.resource}")
+                        Text("Skutek: ${preview!!.consequence}")
+                        Text("Zadanie: ${preview!!.task_id}")
                         Text("Uprawnienie: jednorazowe, ważne do 5 minut")
-                        Text("Digest: §{preview!!.preview_digest}", style = MaterialTheme.typography.bodySmall)
+                        Text("Digest: ${preview!!.preview_digest}", style = MaterialTheme.typography.bodySmall)
                         HorizontalDivider()
                         Text(
                             "Sprawdź parametry powyżej. Zatwierdzenie uruchomi rzeczywiste zadanie na backendzie.",
@@ -455,8 +455,8 @@ private fun StudioScreen() {
 
             job?.let { response ->
                 HorizontalDivider()
-                Text("Zadanie: §{response.id}", style = MaterialTheme.typography.titleSmall)
-                Text("Status: §{response.status} · postęp: §{"%.1f".format(response.progress * 100)}%")
+                Text("Zadanie: ${response.id}", style = MaterialTheme.typography.titleSmall)
+                Text("Status: " + response.status + " · postęp: " + "%.1f".format(response.progress * 100) + "%")
                 if (response.outputs.isNotEmpty()) {
                     Text("Wyniki", style = MaterialTheme.typography.titleMedium)
                     response.outputs.forEach { output ->
@@ -471,7 +471,7 @@ private fun StudioScreen() {
                     )
                 }
                 response.error?.let {
-                    Text("Błąd: §{it}", color = MaterialTheme.colorScheme.error)
+                    Text("Błąd: ${it}", color = MaterialTheme.colorScheme.error)
                 }
             }
 
@@ -492,8 +492,8 @@ private fun errorMessage(error: Exception): String = when (error) {
         410 -> "Stary, arbitralny endpoint generowania jest wyłączony."
         502 -> "Backend nie potwierdził prawidłowego wyniku ComfyUI. Nie ponawiaj tego samego jednorazowego zatwierdzenia."
         503 -> "Backend nie jest gotowy lub nie ma skonfigurowanego klucza API."
-        else -> "Błąd HTTP §{error.code()}: §{error.message()}"
+        else -> "Błąd HTTP ${error.code()}: ${error.message()}"
     }
-    is IOException -> "Brak połączenia z backendem: §{error.localizedMessage ?: "błąd sieci"}"
+    is IOException -> "Brak połączenia z backendem: " + (error.localizedMessage ?: "błąd sieci")
     else -> error.localizedMessage ?: "Nieoczekiwany błąd."
 }
