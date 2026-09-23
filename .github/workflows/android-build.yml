@@ -35,7 +35,7 @@ jobs:
         run: |
           set -euo pipefail
           gradle :app:assembleRelease
-          test -s app/build/outputs/apk/release/app-release.apk
+          test -s app/build/outputs/apk/release/app-release-unsigned.apk
           echo "Unsigned release APK built successfully."
 
       - name: Publish debug APK
@@ -50,6 +50,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: android-ai-studio-release-apk
-          path: app/build/outputs/apk/release/app-release.apk
+          path: app/build/outputs/apk/release/app-release-unsigned.apk
           if-no-files-found: error
           retention-days: 30
