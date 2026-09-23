@@ -20,9 +20,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -52,32 +49,10 @@ import java.io.IOException
 import org.json.JSONObject
 import java.util.UUID
 
-private val Obsidian = Color(0xFF080807)
-private val ObsidianSurface = Color(0xFF12100D)
-private val ObsidianRaised = Color(0xFF1A1712)
-private val Gold24 = Color(0xFFD4AF37)
-private val GoldLight = Color(0xFFF2D675)
-private val Ivory = Color(0xFFF3EFE3)
-private val MutedGold = Color(0xFF9F8741)
-
-private val StudioColors = darkColorScheme(
-    primary = Gold24,
-    onPrimary = Obsidian,
-    secondary = GoldLight,
-    onSecondary = Obsidian,
-    background = Obsidian,
-    onBackground = Ivory,
-    surface = ObsidianSurface,
-    onSurface = Ivory,
-    surfaceVariant = ObsidianRaised,
-    onSurfaceVariant = Color(0xFFC9C2B1),
-    outline = MutedGold
-)
-
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContent { MaterialTheme(colorScheme = StudioColors) { StudioScreen() } }
+        setContent { StudioTheme { StudioScreen() } }
     }
 }
 
@@ -241,13 +216,13 @@ private fun StudioScreen() {
     var previewBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var previewName by remember { mutableStateOf<String?>(null) }
     var modelFiles by remember { mutableStateOf<List<String>>(emptyList()) }
+    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     val modelPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
         val names = uris.mapNotNull { uri -> queryDisplayName(context, uri) ?: uri.lastPathSegment }
         modelFiles = (modelFiles + names).distinct()
         status = "Dodano " + names.size + " plików modeli. Katalog: GGUF / WAN / checkpoints."
     }
-    val scope = rememberCoroutineScope()
-    val context = LocalContext.current
     val selected = workflows.firstOrNull { it.id == selectedId }
 
     fun authorization() = "Bearer ${apiKey.trim()}"
