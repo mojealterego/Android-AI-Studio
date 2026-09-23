@@ -44,9 +44,9 @@ data class WorkflowListResponse(val workflows: List<WorkflowSummary> = emptyList
 data class CreateJobV2Request(
     val workflow_id: String,
     val parameters: Map<String, Any?> = emptyMap(),
-    val grant_id: String,
-    val session_id: String,
-    val task_id: String,
+    val grant_id: String = "",
+    val session_id: String = "",
+    val task_id: String = "",
     val client_id: String? = null
 )
 
