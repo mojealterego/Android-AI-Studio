@@ -23,3 +23,8 @@ Set the backend HTTPS URL, API key and separate approval token in the Android cl
 ## Safety and content
 
 Only use lawful content involving consenting adults and models/workflows whose licenses permit the intended use. The app is a client; it does not bypass provider or model restrictions.
+
+
+## Phase F status
+
+Production job/media lifecycle is implemented: authenticated job cancellation, queue-aware status reconciliation, sampled Android image preview, MediaStore export for Android 10+, and private cache cleanup. ComfyUI remains private behind the backend proxy.
