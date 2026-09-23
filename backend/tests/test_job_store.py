@@ -54,3 +54,15 @@ def test_job_store_enforces_owner_filter(tmp_path):
     store.create(sample_job("foreign", "owner-2"))
 
     assert [x["id"] for x in store.list_owned("owner-1")] == ["owned"]
+
+
+def test_job_store_marks_inflight_jobs_unknown_after_restart(tmp_path):
+    store = JobStore(tmp_path / "jobs.sqlite3")
+    store.create(sample_job())
+    store.update("job-1", status="RUNNING", progress=0.4)
+
+    assert store.recover_inflight("owner-1") == 1
+    restored = store.get("job-1")
+
+    assert restored["status"] == "UNKNOWN"
+    assert restored["error_code"] == "BACKEND_RESTART"
