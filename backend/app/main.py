@@ -3,11 +3,13 @@ from __future__ import annotations
 import hmac
 import os
 import uuid
+from pathlib import PurePosixPath
 from typing import Literal, Any
 from datetime import datetime, timedelta, timezone
 
 import httpx
 from fastapi import FastAPI, Header, HTTPException, Depends
+from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, ConfigDict
 
@@ -33,6 +35,7 @@ JOB_DB_PATH = os.getenv("JOB_DB_PATH", "./data/jobs.sqlite3")
 JOB_STORE = JobStore(JOB_DB_PATH)
 RECEIPT_DB_PATH = os.getenv("RECEIPT_DB_PATH", "./data/receipts.sqlite3")
 RECEIPT_STORE = ReceiptStore(RECEIPT_DB_PATH)
+MEDIA_MAX_BYTES = int(os.getenv("MEDIA_MAX_BYTES", str(250 * 1024 * 1024)))
 
 app = FastAPI(title="AI Studio API", version="0.3.0")
 origins = [x.strip() for x in os.getenv("CORS_ORIGINS", "").split(",") if x.strip()]
@@ -508,7 +511,20 @@ async def get_job(job_id: str, principal_id: str = Depends(authorize_actor)):
                 for key in ("images", "videos", "gifs"):
                     value = node.get(key, [])
                     if isinstance(value, list):
-                        files.extend(value)
+                        for output in value:
+                            if not isinstance(output, dict):
+                                continue
+                            filename = str(output.get("filename", ""))
+                            if not filename or PurePosixPath(filename).name != filename:
+                                continue
+                            files.append({
+                                "filename": filename,
+                                "subfolder": str(output.get("subfolder", "")),
+                                "type": str(output.get("type", "output")),
+                                "format": str(output.get("format", "")),
+                                "media_index": len(files),
+                                "media_path": "/api/jobs/%s/media/%d" % (job_id, len(files)),
+                            })
         JOB_STORE.update(job_id, status="COMPLETED", progress=1.0, outputs=files)
     elif status.get("status_str") == "error":
         JOB_STORE.update(
@@ -529,6 +545,46 @@ async def get_result(job_id: str, principal_id: str = Depends(authorize_actor)):
     if job["status"] != "COMPLETED":
         raise HTTPException(status_code=409, detail="Job is not complete")
     return {"id": job_id, "outputs": job.get("outputs", [])}
+
+
+@app.get("/api/jobs/{job_id}/media/{media_index}")
+async def get_media(job_id: str, media_index: int, principal_id: str = Depends(authorize_actor)):
+    job = owned_job(job_id, principal_id)
+    outputs = job.get("outputs", [])
+    if media_index < 0 or media_index >= len(outputs):
+        raise HTTPException(status_code=404, detail="Media not found")
+    output = outputs[media_index]
+    if not isinstance(output, dict):
+        raise HTTPException(status_code=404, detail="Media not found")
+    filename = str(output.get("filename", ""))
+    subfolder = str(output.get("subfolder", ""))
+    media_type = str(output.get("type", "output"))
+    if not filename or PurePosixPath(filename).name != filename:
+        raise HTTPException(status_code=404, detail="Media not found")
+    if PurePosixPath(subfolder).is_absolute() or ".." in PurePosixPath(subfolder).parts:
+        raise HTTPException(status_code=404, detail="Media not found")
+    if media_type not in {"output", "temp", "input"}:
+        raise HTTPException(status_code=404, detail="Media not found")
+
+    async def stream():
+        timeout = httpx.Timeout(60.0, connect=5.0)
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            async with client.stream("GET", f"{COMFYUI}/view", params={"filename": filename, "subfolder": subfolder, "type": media_type}) as response:
+                if response.status_code >= 400:
+                    raise RuntimeError("media upstream rejected")
+                content_length = response.headers.get("content-length")
+                if content_length and int(content_length) > MEDIA_MAX_BYTES:
+                    raise RuntimeError("media exceeds configured size limit")
+                total = 0
+                async for chunk in response.aiter_bytes(1024 * 64):
+                    total += len(chunk)
+                    if total > MEDIA_MAX_BYTES:
+                        raise RuntimeError("media exceeds configured size limit")
+                    yield chunk
+
+    suffix = PurePosixPath(filename).suffix.lower()
+    content_type = {".jpg":"image/jpeg",".jpeg":"image/jpeg",".png":"image/png",".webp":"image/webp",".gif":"image/gif",".mp4":"video/mp4",".webm":"video/webm",".mov":"video/quicktime"}.get(suffix,"application/octet-stream")
+    return StreamingResponse(stream(), media_type=content_type, headers={"Content-Disposition": "inline; filename=\"%s\"" % filename, "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"})
 
 
 @app.get("/api/v2/receipts")
