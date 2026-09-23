@@ -14,10 +14,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
@@ -55,7 +55,32 @@ jobs:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-        run: gradle :app:assembleRelease :app:bundleRelease
+        run: |
+          set -euo pipefail
+
+          # Validate the actual private-key password before Gradle packaging.
+          # If keytool was told to reuse the keystore password, support that
+          # valid PKCS12 configuration without requiring a duplicate secret.
+          if keytool -list \
+              -keystore "$ANDROID_KEYSTORE_PATH" \
+              -storepass "$ANDROID_KEYSTORE_PASSWORD" \
+              -alias "$ANDROID_KEY_ALIAS" \
+              -keypass "$ANDROID_KEY_PASSWORD" >/dev/null 2>&1; then
+            echo "Release signing key password validated."
+          elif keytool -list \
+              -keystore "$ANDROID_KEYSTORE_PATH" \
+              -storepass "$ANDROID_KEYSTORE_PASSWORD" \
+              -alias "$ANDROID_KEY_ALIAS" \
+              -keypass "$ANDROID_KEYSTORE_PASSWORD" >/dev/null 2>&1; then
+            echo "Private key uses the keystore password; using the validated keystore password for signing."
+            export ANDROID_KEY_PASSWORD="$ANDROID_KEYSTORE_PASSWORD"
+          else
+            echo "Release signing key password does not match the keystore entry."
+            echo "Update ANDROID_KEY_PASSWORD with the password used for the android-ai-studio key."
+            exit 1
+          fi
+
+          gradle :app:assembleRelease :app:bundleRelease
 
       - name: Publish debug APK
         uses: actions/upload-artifact@v4
