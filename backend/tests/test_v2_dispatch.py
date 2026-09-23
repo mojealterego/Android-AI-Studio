@@ -12,6 +12,7 @@ from app.workflow_registry import WorkflowRegistry
 
 
 def make_registry(tmp_path):
+    tmp_path.mkdir(parents=True, exist_ok=True)
     graph = {"1": {"class_type": "CLIPTextEncode", "inputs": {"text": "placeholder"}}}
     (tmp_path / "template.json").write_text(json.dumps(graph), encoding="utf-8")
     manifest = {
