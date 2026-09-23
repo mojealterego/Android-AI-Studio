@@ -4,6 +4,9 @@ import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import okhttp3.OkHttpClient
 import okhttp3.ResponseBody
+import okhttp3.Request
+import okhttp3.WebSocket
+import okhttp3.WebSocketListener
 import retrofit2.Retrofit
 import retrofit2.converter.moshi.MoshiConverterFactory
 import retrofit2.http.Body
@@ -194,6 +197,30 @@ interface StudioApi {
     ): List<JobResponse>
 
     companion object {
+        fun openProgressWebSocket(
+            baseUrl: String,
+            authorization: String,
+            approvalToken: String,
+            jobId: String,
+            listener: WebSocketListener
+        ): WebSocket {
+            val normalized = baseUrl.trim().removeSuffix("/")
+            require(normalized.startsWith("https://", ignoreCase = true)) {
+                "Backend musi używać HTTPS."
+            }
+            val wsBase = "wss://" + normalized.removePrefix("https://")
+            val request = Request.Builder()
+                .url("$wsBase/api/jobs/$jobId/progress")
+                .header("Authorization", authorization)
+                .header("X-Approval-Token", approvalToken)
+                .build()
+            return OkHttpClient.Builder()
+                .connectTimeout(15, TimeUnit.SECONDS)
+                .readTimeout(0, TimeUnit.MILLISECONDS)
+                .build()
+                .newWebSocket(request, listener)
+        }
+
         fun create(baseUrl: String): StudioApi {
             val normalizedInput = baseUrl.trim()
             require(normalizedInput.startsWith("https://", ignoreCase = true)) {
