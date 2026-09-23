@@ -96,5 +96,6 @@ def test_v2_dispatch_consumes_matching_grant_and_sends_server_graph(monkeypatch,
     assert calls[0][2]["json"]["prompt"]["1"]["inputs"]["text"] == "approved prompt"
     assert store.get("grant-1") is not None
 
-    with pytest.raises(Exception):
+    with pytest.raises(main.HTTPException) as exc:
         asyncio.run(main.create_job_v2(request, main.INSTANCE_OWNER_ID))
+    assert exc.value.status_code == 403
