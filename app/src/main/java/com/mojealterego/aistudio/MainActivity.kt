@@ -1,22 +1,33 @@
 package com.mojealterego.aistudio
 
+import android.content.ContentValues
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.provider.MediaStore
 import androidx.core.content.FileProvider
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import retrofit2.HttpException
 import java.io.File
 import java.io.IOException
@@ -47,6 +58,8 @@ private fun StudioScreen() {
     var preview by remember { mutableStateOf<ApprovalPreviewResponse?>(null) }
     var sessionId by remember { mutableStateOf(UUID.randomUUID().toString()) }
     var taskId by remember { mutableStateOf<String?>(null) }
+    var previewBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    var previewName by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val selected = workflows.firstOrNull { it.id == selectedId }
@@ -65,16 +78,21 @@ private fun StudioScreen() {
             status = "Pobieranie wyniku…"
             try {
                 val body = api().getMedia(authorization(), approvalToken.trim(), jobId, index)
+                val mime = body.contentType()?.toString() ?: mimeTypeForFilename(filename)
                 val safeName = (filename ?: "output-$index.bin").replace(Regex("[^A-Za-z0-9._-]"), "_")
                 val file = File(context.cacheDir, "aistudio-$jobId-$index-$safeName")
                 body.byteStream().use { input -> file.outputStream().use { output -> input.copyTo(output) } }
+                if (mime.startsWith("image/")) {
+                    previewBitmap = withContext(Dispatchers.IO) { decodePreviewBitmap(file) }
+                    previewName = safeName
+                }
                 val uri = FileProvider.getUriForFile(context, context.packageName + ".fileprovider", file)
                 val intent = Intent(Intent.ACTION_VIEW).apply {
-                    setDataAndType(uri, body.contentType()?.toString() ?: "application/octet-stream")
+                    setDataAndType(uri, mime)
                     addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                 }
                 context.startActivity(Intent.createChooser(intent, "Otwórz wynik"))
-                status = "Wynik otwarty z prywatnego proxy backendu."
+                status = "Wynik pobrany przez prywatny proxy backendu."
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -252,10 +270,18 @@ private fun StudioScreen() {
         }
     }
 
+    LaunchedEffect(Unit) {
+        withContext(Dispatchers.IO) {
+            context.cacheDir.listFiles()
+                ?.filter { it.name.startsWith("aistudio-") && System.currentTimeMillis() - it.lastModified() > 24L * 60L * 60L * 1000L }
+                ?.forEach { it.delete() }
+        }
+    }
+
     LaunchedEffect(job?.id, server, apiKey, approvalToken) {
         val currentJob = job ?: return@LaunchedEffect
         if (server.isBlank() || apiKey.isBlank() || approvalToken.isBlank()) return@LaunchedEffect
-        if (currentJob.status in setOf("COMPLETED", "FAILED", "UNKNOWN")) return@LaunchedEffect
+        if (currentJob.status in setOf("COMPLETED", "FAILED", "CANCELLED", "UNKNOWN")) return@LaunchedEffect
 
         while (true) {
             delay(2500)
@@ -265,8 +291,11 @@ private fun StudioScreen() {
                 status = when (refreshed.status) {
                     "COMPLETED" -> "Generowanie zakończone."
                     "FAILED" -> "Backend zgłosił błąd generowania."
+                    "CANCELLED" -> "Generowanie anulowane."
                     "UNKNOWN" -> "Stan zadania jest niepewny; nie wysyłaj ponownie tego samego jednorazowego zatwierdzenia."
-                    else -> "Generowanie w toku: " + "%.1f".format(refreshed.progress * 100) + "%."
+                    "RUNNING" -> "Generowanie w toku."
+                    "QUEUED" -> "W kolejce: " + (refreshed.queue_position?.toString() ?: "oczekuje") + "."
+                    else -> "Stan zadania: " + refreshed.status + "."
                 }
                 if (refreshed.status in setOf("COMPLETED", "FAILED", "UNKNOWN")) break
             } catch (e: CancellationException) {
@@ -487,7 +516,24 @@ private fun StudioScreen() {
             job?.let { response ->
                 HorizontalDivider()
                 Text("Zadanie: ${response.id}", style = MaterialTheme.typography.titleSmall)
-                Text("Status: " + response.status + " · postęp: " + "%.1f".format(response.progress * 100) + "%")
+                Text(
+                    when (response.status) {
+                        "QUEUED" -> "Status: W kolejce" + (response.queue_position?.let { " · pozycja " + it } ?: "")
+                        "RUNNING" -> "Status: Uruchomione · generowanie w toku"
+                        "COMPLETED" -> "Status: Zakończone"
+                        "CANCELLED" -> "Status: Anulowane"
+                        "FAILED" -> "Status: Błąd"
+                        "UNKNOWN" -> "Status: Niepewny"
+                        else -> "Status: " + response.status
+                    }
+                )
+                if (response.status in setOf("QUEUED", "RUNNING")) {
+                    OutlinedButton(
+                        onClick = { cancelCurrentJob() },
+                        enabled = !busy,
+                        modifier = Modifier.fillMaxWidth()
+                    ) { Text("Anuluj generowanie") }
+                }
                 if (response.outputs.isNotEmpty()) {
                     Text("Wyniki", style = MaterialTheme.typography.titleMedium)
                     response.outputs.forEachIndexed { index, output ->
@@ -496,12 +542,33 @@ private fun StudioScreen() {
                                 listOfNotNull(output.filename, output.subfolder, output.type, output.format).joinToString(" · "),
                                 style = MaterialTheme.typography.bodySmall
                             )
-                            Button(
-                                onClick = { openMedia(response.id, output.media_index ?: index, output.filename) },
-                                enabled = !busy,
-                                modifier = Modifier.fillMaxWidth()
+                            Row(
+                                Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                Text("Otwórz / pobierz wynik")
+                                Button(
+                                    onClick = { openMedia(response.id, output.media_index ?: index, output.filename) },
+                                    enabled = !busy,
+                                    modifier = Modifier.weight(1f)
+                                ) { Text("Otwórz") }
+                                OutlinedButton(
+                                    onClick = { saveMedia(response.id, output.media_index ?: index, output.filename) },
+                                    enabled = !busy,
+                                    modifier = Modifier.weight(1f)
+                                ) { Text("Zapisz") }
+                            }
+                        }
+                    }
+                    previewBitmap?.let { bitmap ->
+                        Card(Modifier.fillMaxWidth()) {
+                            Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text("Podgląd obrazu" + (previewName?.let { ": " + it } ?: ""))
+                                Image(
+                                    bitmap = bitmap.asImageBitmap(),
+                                    contentDescription = previewName,
+                                    modifier = Modifier.fillMaxWidth(),
+                                    contentScale = ContentScale.Fit
+                                )
                             }
                         }
                     }
@@ -536,4 +603,70 @@ private fun errorMessage(error: Exception): String = when (error) {
     }
     is IOException -> "Brak połączenia z backendem: " + (error.localizedMessage ?: "błąd sieci")
     else -> error.localizedMessage ?: "Nieoczekiwany błąd."
+}
+
+
+private fun mimeTypeForFilename(filename: String?): String {
+    return when (filename?.substringAfterLast('.', "").lowercase()) {
+        "jpg", "jpeg" -> "image/jpeg"
+        "png" -> "image/png"
+        "webp" -> "image/webp"
+        "gif" -> "image/gif"
+        "mp4" -> "video/mp4"
+        "webm" -> "video/webm"
+        "mov" -> "video/quicktime"
+        else -> "application/octet-stream"
+    }
+}
+
+private fun decodePreviewBitmap(file: File, maxDimension: Int = 1600): Bitmap? {
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    BitmapFactory.decodeFile(file.absolutePath, bounds)
+    if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+    var sample = 1
+    while (bounds.outWidth / sample > maxDimension || bounds.outHeight / sample > maxDimension) {
+        sample *= 2
+    }
+    return BitmapFactory.decodeFile(
+        file.absolutePath,
+        BitmapFactory.Options().apply { inSampleSize = sample }
+    )
+}
+
+private fun saveToMediaStore(
+    context: android.content.Context,
+    file: File,
+    displayName: String,
+    mimeType: String
+) {
+    val resolver = context.contentResolver
+    val isVideo = mimeType.startsWith("video/")
+    val collection = if (isVideo) {
+        MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+    } else {
+        MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+    }
+    val values = ContentValues().apply {
+        put(MediaStore.MediaColumns.DISPLAY_NAME, displayName)
+        put(MediaStore.MediaColumns.MIME_TYPE, mimeType)
+        put(
+            MediaStore.MediaColumns.RELATIVE_PATH,
+            if (isVideo) "Movies/AI Studio" else "Pictures/AI Studio"
+        )
+        put(MediaStore.MediaColumns.IS_PENDING, 1)
+    }
+    val uri: Uri = resolver.insert(collection, values)
+        ?: error("MediaStore nie utworzył wpisu")
+    try {
+        resolver.openOutputStream(uri, "w")?.use { output ->
+            file.inputStream().use { input -> input.copyTo(output) }
+        } ?: error("Nie można otworzyć docelowego pliku")
+        val publish = ContentValues().apply {
+            put(MediaStore.MediaColumns.IS_PENDING, 0)
+        }
+        resolver.update(uri, publish, null, null)
+    } catch (error: Exception) {
+        resolver.delete(uri, null, null)
+        throw error
+    }
 }
