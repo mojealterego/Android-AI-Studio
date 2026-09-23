@@ -504,7 +504,7 @@ async def get_job(job_id: str, principal_id: str = Depends(authorize_actor)):
     if job["status"] == "CANCELLED":
         return job
 
-    history = await comfy_request("GET", f"/history/{job["prompt_id"]}")
+    history = await comfy_request("GET", f"/history/{job['prompt_id']}")
     item = history.get(job["prompt_id"], {})
     status = item.get("status", {})
     messages = status.get("messages", []) if isinstance(status, dict) else []
