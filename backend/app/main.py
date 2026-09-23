@@ -11,6 +11,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, ConfigDict
 
 from .workflow_registry import registry
+from .consent_dispatch import DispatchAuthorization, authorize_dispatch
+from .consent_store import ConsentStore
+from .consent_core import ConsentError
+from .consent_binding import workflow_resource
 
 COMFYUI = os.getenv("COMFYUI_BASE_URL", "http://127.0.0.1:8188").rstrip("/")
 API_KEY = os.getenv("API_KEY", "").strip()
@@ -19,6 +23,8 @@ INSTANCE_OWNER_ID = os.getenv("INSTANCE_OWNER_ID", "single-instance").strip()
 MAX_PROMPT_LENGTH = int(os.getenv("MAX_PROMPT_LENGTH", "4000"))
 MAX_WORKFLOW_NODES = int(os.getenv("MAX_WORKFLOW_NODES", "250"))
 MAX_TRACKED_JOBS = int(os.getenv("MAX_TRACKED_JOBS", "500"))
+CONSENT_DB_PATH = os.getenv("CONSENT_DB_PATH", "./data/consent.sqlite3")
+CONSENT_STORE = ConsentStore(CONSENT_DB_PATH)
 
 app = FastAPI(title="AI Studio API", version="0.2.3")
 origins = [x.strip() for x in os.getenv("CORS_ORIGINS", "").split(",") if x.strip()]
@@ -39,6 +45,10 @@ class CreateJobV2(BaseModel):
     model_config = ConfigDict(extra="forbid")
     workflow_id: str = Field(min_length=1, max_length=64, pattern=r"^[a-z][a-z0-9_-]{0,63}$")
     parameters: dict[str, Any] = Field(default_factory=dict)
+    grant_id: str = Field(min_length=1, max_length=256)
+    session_id: str = Field(min_length=1, max_length=256)
+    task_id: str = Field(min_length=1, max_length=256)
+    client_id: str | None = Field(default=None, min_length=1, max_length=256)
 
 async def authorize(authorization: str | None = Header(default=None)) -> str:
     if not API_KEY:
@@ -87,13 +97,30 @@ async def list_workflows():
     """Return only server-configured workflows; never expose template graphs."""
     return {"workflows": registry.public_list()}
 
-@app.post("/api/v2/jobs", dependencies=[Depends(authorize)])
-async def create_job_v2(request: CreateJobV2):
-    """Fail closed until human approval is bound to actor, task and immutable inputs."""
-    raise HTTPException(status_code=503, detail={
-        "code": "CONSENT_ENFORCEMENT_NOT_CONFIGURED",
-        "message": "Job dispatch is disabled until authenticated, task-scoped consent is enforced.",
-    })
+@app.post("/api/v2/jobs", status_code=201)
+async def create_job_v2(request: CreateJobV2, principal_id: str = Depends(authorize)):
+    """Dispatch a server-owned workflow only after exact, task-scoped consent."""
+    try:
+        graph = registry.build(request.workflow_id, request.parameters)
+        authorize_dispatch(
+            CONSENT_STORE,
+            DispatchAuthorization(
+                grant_id=request.grant_id,
+                subject_id=principal_id,
+                workflow_id=request.workflow_id,
+                resource=workflow_resource(request.workflow_id, request.parameters),
+                task_id=request.task_id,
+                session_id=request.session_id,
+            ),
+            request.parameters,
+        )
+    except ConsentError as exc:
+        raise HTTPException(status_code=403, detail="Consent denied") from exc
+
+    client_id = request.client_id or str(uuid.uuid4())
+    response = await comfy_request("POST", "/prompt", json={"prompt": graph, "client_id": client_id})
+    prompt_id = response.get("prompt_id") if isinstance(response, dict) else None
+    return store_job(prompt_id, client_id, registry.get_spec(request.workflow_id).media_type)
 
 @app.post("/api/jobs", dependencies=[Depends(authorize)])
 async def create_job(request: CreateJob):
