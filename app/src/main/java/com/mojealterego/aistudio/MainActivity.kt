@@ -1,6 +1,8 @@
 package com.mojealterego.aistudio
 
+import android.content.Intent
 import android.os.Bundle
+import androidx.core.content.FileProvider
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.*
@@ -8,6 +10,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
@@ -15,6 +18,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import retrofit2.HttpException
+import java.io.File
 import java.io.IOException
 import java.util.UUID
 
@@ -44,6 +48,7 @@ private fun StudioScreen() {
     var sessionId by remember { mutableStateOf(UUID.randomUUID().toString()) }
     var taskId by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     val selected = workflows.firstOrNull { it.id == selectedId }
 
     fun authorization() = "Bearer ${apiKey.trim()}"
@@ -52,6 +57,32 @@ private fun StudioScreen() {
     fun resetApproval() {
         preview = null
         taskId = null
+    }
+
+    fun openMedia(jobId: String, index: Int, filename: String?) {
+        scope.launch {
+            busy = true
+            status = "Pobieranie wyniku…"
+            try {
+                val body = api().getMedia(authorization(), approvalToken.trim(), jobId, index)
+                val safeName = (filename ?: "output-$index.bin").replace(Regex("[^A-Za-z0-9._-]"), "_")
+                val file = File(context.cacheDir, "aistudio-$jobId-$index-$safeName")
+                body.byteStream().use { input -> file.outputStream().use { output -> input.copyTo(output) } }
+                val uri = FileProvider.getUriForFile(context, context.packageName + ".fileprovider", file)
+                val intent = Intent(Intent.ACTION_VIEW).apply {
+                    setDataAndType(uri, body.contentType()?.toString() ?: "application/octet-stream")
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                context.startActivity(Intent.createChooser(intent, "Otwórz wynik"))
+                status = "Wynik otwarty z prywatnego proxy backendu."
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                status = errorMessage(e)
+            } finally {
+                busy = false
+            }
+        }
     }
 
     fun loadWorkflows() {
@@ -459,14 +490,23 @@ private fun StudioScreen() {
                 Text("Status: " + response.status + " · postęp: " + "%.1f".format(response.progress * 100) + "%")
                 if (response.outputs.isNotEmpty()) {
                     Text("Wyniki", style = MaterialTheme.typography.titleMedium)
-                    response.outputs.forEach { output ->
-                        Text(
-                            listOfNotNull(output.filename, output.subfolder, output.type, output.format).joinToString(" · "),
-                            style = MaterialTheme.typography.bodySmall
-                        )
+                    response.outputs.forEachIndexed { index, output ->
+                        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(
+                                listOfNotNull(output.filename, output.subfolder, output.type, output.format).joinToString(" · "),
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                            Button(
+                                onClick = { openMedia(response.id, output.media_index ?: index, output.filename) },
+                                enabled = !busy,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text("Otwórz / pobierz wynik")
+                            }
+                        }
                     }
                     Text(
-                        "Backend zwraca metadane plików. Publiczny proxy/serwer obiektowy dla mediów jest kolejnym krokiem infrastruktury.",
+                        "Media są pobierane przez uwierzytelniony backend; ComfyUI pozostaje prywatne i nie jest dostępne z telefonu.",
                         style = MaterialTheme.typography.bodySmall
                     )
                 }
