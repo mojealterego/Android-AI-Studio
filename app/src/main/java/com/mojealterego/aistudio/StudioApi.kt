@@ -41,12 +41,50 @@ data class WorkflowSummary(
 
 data class WorkflowListResponse(val workflows: List<WorkflowSummary> = emptyList())
 
+data class PreviewRequest(
+    val workflow_id: String,
+    val parameters: Map<String, Any?> = emptyMap(),
+    val session_id: String,
+    val task_id: String
+)
+
+data class ApprovalRequest(
+    val workflow_id: String,
+    val parameters: Map<String, Any?> = emptyMap(),
+    val session_id: String,
+    val task_id: String,
+    val preview_digest: String,
+    val duration: String = "ONCE",
+    val expires_in_seconds: Int = 300
+)
+
+data class ApprovalPreviewResponse(
+    val workflow_id: String,
+    val workflow_version: Int,
+    val media_type: String,
+    val parameters: Map<String, Any?> = emptyMap(),
+    val session_id: String,
+    val task_id: String,
+    val action: String,
+    val resource: String,
+    val preview_digest: String,
+    val consequence: String
+)
+
+data class ApprovalResponse(
+    val grant_id: String,
+    val subject_id: String,
+    val resource: String,
+    val duration: String,
+    val expires_at: String
+)
+
 data class CreateJobV2Request(
     val workflow_id: String,
     val parameters: Map<String, Any?> = emptyMap(),
-    val grant_id: String = "",
-    val session_id: String = "",
-    val task_id: String = "",
+    val grant_id: String,
+    val session_id: String,
+    val task_id: String,
     val client_id: String? = null
 )
 
@@ -81,13 +119,27 @@ interface StudioApi {
         @Header("Authorization") authorization: String
     ): WorkflowListResponse
 
+    @POST("api/v2/approval-preview")
+    suspend fun approvalPreview(
+        @Header("Authorization") authorization: String,
+        @Body request: PreviewRequest
+    ): ApprovalPreviewResponse
+
+    @POST("api/v2/approvals")
+    suspend fun createApproval(
+        @Header("Authorization") authorization: String,
+        @Header("X-Approval-Token") approvalToken: String,
+        @Body request: ApprovalRequest
+    ): ApprovalResponse
+
     @POST("api/v2/jobs")
     suspend fun createJobV2(
         @Header("Authorization") authorization: String,
+        @Header("X-Approval-Token") approvalToken: String,
         @Body request: CreateJobV2Request
     ): JobResponse
 
-    /** Legacy endpoint; migrate callers to createJobV2. */
+    /** Legacy endpoint intentionally retained only for explicit server-side 410 compatibility testing. */
     @POST("api/jobs")
     suspend fun createJob(
         @Header("Authorization") authorization: String,
@@ -97,18 +149,21 @@ interface StudioApi {
     @GET("api/jobs/{id}")
     suspend fun getJob(
         @Header("Authorization") authorization: String,
+        @Header("X-Approval-Token") approvalToken: String,
         @Path("id") id: String
     ): JobResponse
 
     @GET("api/jobs/{id}/result")
     suspend fun getResult(
         @Header("Authorization") authorization: String,
+        @Header("X-Approval-Token") approvalToken: String,
         @Path("id") id: String
     ): JobResultResponse
 
     @GET("api/jobs")
     suspend fun listJobs(
-        @Header("Authorization") authorization: String
+        @Header("Authorization") authorization: String,
+        @Header("X-Approval-Token") approvalToken: String
     ): List<JobResponse>
 
     companion object {
