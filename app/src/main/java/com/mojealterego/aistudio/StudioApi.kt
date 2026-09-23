@@ -3,12 +3,14 @@ package com.mojealterego.aistudio
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import okhttp3.OkHttpClient
+import okhttp3.ResponseBody
 import retrofit2.Retrofit
 import retrofit2.converter.moshi.MoshiConverterFactory
 import retrofit2.http.Body
 import retrofit2.http.GET
 import retrofit2.http.Header
 import retrofit2.http.POST
+import retrofit2.http.Streaming
 import retrofit2.http.Path
 import java.util.concurrent.TimeUnit
 
@@ -92,7 +94,9 @@ data class JobOutput(
     val filename: String? = null,
     val subfolder: String? = null,
     val type: String? = null,
-    val format: String? = null
+    val format: String? = null,
+    val media_index: Int? = null,
+    val media_path: String? = null
 )
 
 data class JobResponse(
@@ -152,6 +156,15 @@ interface StudioApi {
         @Header("X-Approval-Token") approvalToken: String,
         @Path("id") id: String
     ): JobResponse
+
+    @Streaming
+    @GET("api/jobs/{id}/media/{index}")
+    suspend fun getMedia(
+        @Header("Authorization") authorization: String,
+        @Header("X-Approval-Token") approvalToken: String,
+        @Path("id") id: String,
+        @Path("index") index: Int
+    ): ResponseBody
 
     @GET("api/jobs/{id}/result")
     suspend fun getResult(
