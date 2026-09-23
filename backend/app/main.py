@@ -22,6 +22,7 @@ from .consent_receipt import ActionReceipt, ActionStatus
 from .receipt_store import ReceiptStore
 from .approval_auth import ApprovalAuthenticationError, authenticate_approver
 from .job_store import JobStore
+from .job_control import make_job_router
 
 COMFYUI = os.getenv("COMFYUI_BASE_URL", "http://127.0.0.1:8188").rstrip("/")
 API_KEY = os.getenv("API_KEY", "").strip()
@@ -500,9 +501,20 @@ async def list_jobs(principal_id: str = Depends(authorize_actor)):
 @app.get("/api/jobs/{job_id}")
 async def get_job(job_id: str, principal_id: str = Depends(authorize_actor)):
     job = owned_job(job_id, principal_id)
-    history = await comfy_request("GET", f"/history/{job['prompt_id']}")
+    if job["status"] == "CANCELLED":
+        return job
+
+    history = await comfy_request("GET", f"/history/{job["prompt_id"]}")
     item = history.get(job["prompt_id"], {})
     status = item.get("status", {})
+    messages = status.get("messages", []) if isinstance(status, dict) else []
+    interrupted = any(
+        isinstance(message, list)
+        and len(message) >= 1
+        and message[0] == "execution_interrupted"
+        for message in messages
+    )
+
     if status.get("completed"):
         outputs = item.get("outputs", {})
         files = []
@@ -525,18 +537,63 @@ async def get_job(job_id: str, principal_id: str = Depends(authorize_actor)):
                                 "media_index": len(files),
                                 "media_path": "/api/jobs/%s/media/%d" % (job_id, len(files)),
                             })
+        if interrupted:
+            return JOB_STORE.update(
+                job_id,
+                status="CANCELLED",
+                progress=0.0,
+                error_code="JOB_CANCELLED",
+                error_detail="ComfyUI reported an interrupted execution",
+            )
         JOB_STORE.update(job_id, status="COMPLETED", progress=1.0, outputs=files)
     elif status.get("status_str") == "error":
-        JOB_STORE.update(
-            job_id,
-            status="FAILED",
-            error_code="COMFYUI_JOB_FAILED",
-            error_detail="ComfyUI reported a job failure",
-        )
+        if interrupted:
+            JOB_STORE.update(
+                job_id,
+                status="CANCELLED",
+                progress=0.0,
+                error_code="JOB_CANCELLED",
+                error_detail="ComfyUI reported an interrupted execution",
+            )
+        else:
+            JOB_STORE.update(
+                job_id,
+                status="FAILED",
+                error_code="COMFYUI_JOB_FAILED",
+                error_detail="ComfyUI reported a job failure",
+            )
     else:
-        JOB_STORE.update(job_id, status=job.get("status", "QUEUED"), progress=float(job.get("progress", 0.0)))
-    return JOB_STORE.get(job_id) or job
+        queue_position = None
+        current_status = job.get("status", "QUEUED")
+        try:
+            queue = await comfy_request("GET", "/queue")
+            running = [
+                str(item[1]) for item in queue.get("queue_running", [])
+                if isinstance(item, list) and len(item) > 1
+            ]
+            pending = [
+                str(item[1]) for item in queue.get("queue_pending", [])
+                if isinstance(item, list) and len(item) > 1
+            ]
+            if job["prompt_id"] in running:
+                current_status = "RUNNING"
+                queue_position = 0
+            elif job["prompt_id"] in pending:
+                current_status = "QUEUED"
+                queue_position = pending.index(job["prompt_id"]) + 1
+        except HTTPException:
+            pass
+        updated = JOB_STORE.update(
+            job_id,
+            status=current_status,
+            progress=float(job.get("progress", 0.0)),
+        )
+        updated["queue_position"] = queue_position
+        return updated
 
+    updated = JOB_STORE.get(job_id) or job
+    updated["queue_position"] = 0 if updated["status"] == "COMPLETED" else None
+    return updated
 
 @app.get("/api/jobs/{job_id}/result")
 async def get_result(job_id: str, principal_id: str = Depends(authorize_actor)):
@@ -563,7 +620,7 @@ async def get_media(job_id: str, media_index: int, principal_id: str = Depends(a
         raise HTTPException(status_code=404, detail="Media not found")
     if PurePosixPath(subfolder).is_absolute() or ".." in PurePosixPath(subfolder).parts:
         raise HTTPException(status_code=404, detail="Media not found")
-    if media_type not in {"output", "temp", "input"}:
+    if media_type not in {"output", "temp"}:
         raise HTTPException(status_code=404, detail="Media not found")
 
     async def stream():
@@ -593,3 +650,5 @@ async def list_receipts(
     principal_id: str = Depends(authorize_actor),
 ):
     return {"receipts": RECEIPT_STORE.list_owned(principal_id, task_id=task_id)}
+
+app.include_router(make_job_router(authorize_actor, owned_job, comfy_request, JOB_STORE))
