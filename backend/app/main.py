@@ -138,7 +138,7 @@ async def create_job_v2(request: CreateJobV2, principal_id: str = Depends(author
     response = await comfy_request("POST", "/prompt", json={"prompt": graph, "client_id": client_id})
     prompt_id = response.get("prompt_id") if isinstance(response, dict) else None
     spec = registry.get_spec(request.workflow_id)
-    return store_job(prompt_id, client_id, spec.media_type, workflow_id=spec.workflow_id, workflow_version=spec.version, parameters=request.parameters)
+    return store_job(prompt_id, client_id, spec.media_type, workflow_id=spec.id, workflow_version=spec.version, parameters=request.parameters)
 
 @app.post("/api/jobs", dependencies=[Depends(authorize)])
 async def create_job(request: CreateJob):
