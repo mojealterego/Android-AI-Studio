@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hmac
+import json
 import os
 import uuid
 from pathlib import PurePosixPath
@@ -8,9 +9,10 @@ from typing import Literal, Any
 from datetime import datetime, timedelta, timezone
 
 import httpx
-from fastapi import FastAPI, Header, HTTPException, Depends
+from fastapi import FastAPI, Header, HTTPException, Depends, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
+from websockets.asyncio.client import connect as ws_connect
 from pydantic import BaseModel, Field, ConfigDict
 
 from .workflow_registry import registry
@@ -116,6 +118,20 @@ async def approver_subject(
         return authenticate_approver(approval_token)
     except ApprovalAuthenticationError as exc:
         raise HTTPException(status_code=403, detail="Human approval credential required") from exc
+
+
+def comfy_websocket_url(client_id: str) -> str:
+    base = COMFYUI
+    if base.startswith("https://"):
+        scheme = "wss://"
+        host = base[len("https://"):]
+    elif base.startswith("http://"):
+        scheme = "ws://"
+        host = base[len("http://"):]
+    else:
+        raise RuntimeError("Unsupported ComfyUI URL scheme")
+    from urllib.parse import quote
+    return f"{scheme}{host}/ws?clientId={quote(client_id, safe='')}"
 
 
 async def comfy_request(method: str, path: str, **kwargs: Any) -> Any:
@@ -652,3 +668,73 @@ async def list_receipts(
     return {"receipts": RECEIPT_STORE.list_owned(principal_id, task_id=task_id)}
 
 app.include_router(make_job_router(authorize_actor, owned_job, comfy_request, JOB_STORE))
+
+
+@app.websocket("/api/jobs/{job_id}/progress")
+async def job_progress_socket(websocket: WebSocket, job_id: str):
+    authorization = websocket.headers.get("authorization")
+    approval_token = websocket.headers.get("x-approval-token")
+    try:
+        principal_id = await authorize_actor(authorization, approval_token)
+        job = owned_job(job_id, principal_id)
+    except HTTPException as exc:
+        await websocket.close(code=4403 if exc.status_code == 403 else 4401)
+        return
+
+    await websocket.accept()
+    if job["status"] in {"COMPLETED", "FAILED", "CANCELLED", "UNKNOWN"}:
+        await websocket.send_json({
+            "type": "terminal",
+            "status": job["status"],
+            "progress": float(job.get("progress", 0.0)),
+        })
+        await websocket.close(code=1000)
+        return
+
+    prompt_id = str(job["prompt_id"])
+    client_id = str(job["client_id"])
+    try:
+        async with ws_connect(comfy_websocket_url(client_id), open_timeout=10, close_timeout=5) as upstream:
+            while True:
+                message = await upstream.recv()
+                if isinstance(message, bytes):
+                    continue
+                try:
+                    payload = json.loads(message)
+                except (TypeError, ValueError):
+                    continue
+                data = payload.get("data") if isinstance(payload, dict) else None
+                if not isinstance(data, dict) or data.get("prompt_id") != prompt_id:
+                    continue
+                msg_type = payload.get("type")
+                if msg_type == "progress":
+                    value = float(data.get("value", 0))
+                    maximum = float(data.get("max", 1))
+                    fraction = value / maximum if maximum > 0 else 0.0
+                    await websocket.send_json({
+                        "type": "progress",
+                        "value": value,
+                        "max": maximum,
+                        "progress": max(0.0, min(1.0, fraction)),
+                        "node": data.get("node"),
+                        "prompt_id": prompt_id,
+                    })
+                elif msg_type in {"execution_start", "executing", "execution_cached", "executed", "execution_error", "execution_success"}:
+                    await websocket.send_json({"type": msg_type, "data": data})
+                if msg_type == "execution_success":
+                    await websocket.send_json({"type": "terminal", "status": "COMPLETED", "progress": 1.0})
+                    break
+                if msg_type == "execution_error":
+                    await websocket.send_json({"type": "terminal", "status": "FAILED", "progress": 0.0})
+                    break
+                if msg_type == "executing" and data.get("node") is None:
+                    await websocket.send_json({"type": "terminal", "status": "COMPLETED", "progress": 1.0})
+                    break
+    except WebSocketDisconnect:
+        return
+    except Exception as exc:
+        try:
+            await websocket.send_json({"type": "upstream_unavailable", "detail": exc.__class__.__name__})
+            await websocket.close(code=1011)
+        except Exception:
+            pass
