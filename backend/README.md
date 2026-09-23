@@ -1,6 +1,6 @@
 # AI Studio backend (prototype)
 
-FastAPI adapter between the Android client and a private ComfyUI instance. The current API is intentionally fail-closed for job dispatch: this repository does **not** yet provide the authenticated human-consent approval flow required to authorize external generation.
+FastAPI adapter between the Android client and a private ComfyUI instance. The backend now provides a consent-gated v2 dispatch boundary and durable SQLite-backed job lifecycle storage. Human approval remains a separate authenticated concern.
 
 ## Run locally
 
@@ -22,9 +22,9 @@ OpenAPI docs: `http://localhost:8000/docs`.
 All protected endpoints require `Authorization: Bearer <API_KEY>`.
 
 - `GET /api/v2/workflows` — lists server-registered workflow definitions.
-- `POST /api/v2/jobs` — currently returns `503 CONSENT_ENFORCEMENT_NOT_CONFIGURED`; it does not dispatch to ComfyUI.
+- `POST /api/v2/jobs` — dispatches only server-registered workflows after exact task/session-scoped consent; unknown workflows return `404` and missing/invalid consent returns `403`.
 - `POST /api/jobs` — legacy arbitrary-workflow dispatch is disabled and returns `410 LEGACY_DISPATCH_DISABLED`.
-- `GET /api/jobs` and `GET /api/jobs/{id}` — prototype job-status routes; job state is held in process memory and is not durable.
+- `GET /api/jobs` and `GET /api/jobs/{id}` — durable job-status routes backed by `JOB_DB_PATH` (default `./data/jobs.sqlite3`).
 - `GET /api/jobs/{id}/result` — result route; only available for a completed job.
 - `GET /api/health` — checks backend/ComfyUI health; it is not a readiness guarantee for generation.
 
@@ -36,7 +36,7 @@ Do not enable job dispatch by trusting a `subject_id`, grant ID, workflow graph,
 
 ## Production limitations
 
-- Jobs are held in process memory and disappear on restart; use durable storage and a queue suitable for the deployment.
+- Job metadata survives backend restarts through SQLite. For multi-replica production deployment, move the store to a shared transactional database and add a dedicated queue.
 - Add user accounts and per-user ownership checks; the shared API key does not provide tenant isolation.
 - Add rate limits, request-size limits, retention/deletion controls, and operational monitoring.
 - Keep ComfyUI private; expose only the authenticated backend. Do not put API secrets in the Android APK.
