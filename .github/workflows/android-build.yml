@@ -59,13 +59,12 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Validate the actual decoded keystore before Gradle. If the two
-          # repository secrets were accidentally swapped, recover safely
-          # without exposing either secret.
-          if keytool -list               -keystore "$ANDROID_KEYSTORE_PATH"               -storepass "$ANDROID_KEYSTORE_PASSWORD"               -alias "$ANDROID_KEY_ALIAS" >/dev/null 2>&1; then
+          # Validate the decoded keystore password independently of the alias.
+          # This distinguishes a bad password from a wrong/missing alias.
+          if keytool -list               -keystore "$ANDROID_KEYSTORE_PATH"               -storepass "$ANDROID_KEYSTORE_PASSWORD" >/dev/null 2>&1; then
             EFFECTIVE_STORE_PASSWORD="$ANDROID_KEYSTORE_PASSWORD"
             echo "Release keystore opened with ANDROID_KEYSTORE_PASSWORD."
-          elif keytool -list               -keystore "$ANDROID_KEYSTORE_PATH"               -storepass "$ANDROID_KEY_PASSWORD"               -alias "$ANDROID_KEY_ALIAS" >/dev/null 2>&1; then
+          elif keytool -list               -keystore "$ANDROID_KEYSTORE_PATH"               -storepass "$ANDROID_KEY_PASSWORD" >/dev/null 2>&1; then
             EFFECTIVE_STORE_PASSWORD="$ANDROID_KEY_PASSWORD"
             echo "Release keystore opened with ANDROID_KEY_PASSWORD; secrets appear swapped, using the matching value."
           else
@@ -83,6 +82,15 @@ jobs:
           }
 
           echo "Release keystore type: $KEYSTORE_TYPE"
+
+          # Validate the alias separately after the store password succeeds.
+          if keytool -list               -keystore "$ANDROID_KEYSTORE_PATH"               -storepass "$EFFECTIVE_STORE_PASSWORD"               -alias "$ANDROID_KEY_ALIAS" >/dev/null 2>&1; then
+            echo "Release alias validated: $ANDROID_KEY_ALIAS"
+          else
+            echo "ANDROID_KEY_ALIAS does not exist in the decoded release keystore."
+            echo "Store password is valid, but the configured alias is wrong."
+            exit 1
+          fi
 
           if [ "${KEYSTORE_TYPE^^}" = "PKCS12" ]; then
             EFFECTIVE_KEY_PASSWORD="$EFFECTIVE_STORE_PASSWORD"
