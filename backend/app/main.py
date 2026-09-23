@@ -15,6 +15,7 @@ from .consent_dispatch import DispatchAuthorization, authorize_dispatch
 from .consent_store import ConsentStore
 from .consent_core import ConsentError
 from .consent_binding import workflow_resource
+from .job_store import JobStore
 
 COMFYUI = os.getenv("COMFYUI_BASE_URL", "http://127.0.0.1:8188").rstrip("/")
 API_KEY = os.getenv("API_KEY", "").strip()
@@ -25,14 +26,16 @@ MAX_WORKFLOW_NODES = int(os.getenv("MAX_WORKFLOW_NODES", "250"))
 MAX_TRACKED_JOBS = int(os.getenv("MAX_TRACKED_JOBS", "500"))
 CONSENT_DB_PATH = os.getenv("CONSENT_DB_PATH", "./data/consent.sqlite3")
 CONSENT_STORE = ConsentStore(CONSENT_DB_PATH)
+JOB_DB_PATH = os.getenv("JOB_DB_PATH", "./data/jobs.sqlite3")
+JOB_STORE = JobStore(JOB_DB_PATH)
 
 app = FastAPI(title="AI Studio API", version="0.2.3")
 origins = [x.strip() for x in os.getenv("CORS_ORIGINS", "").split(",") if x.strip()]
 app.add_middleware(CORSMiddleware, allow_origins=origins or [], allow_credentials=False,
                    allow_methods=["GET", "POST"], allow_headers=["Authorization", "Content-Type"])
 
-# Demo in-memory index. Use a shared transactional database for durable deployment.
-jobs: dict[str, dict[str, Any]] = {}
+# Compatibility cache for callers/tests; JOB_STORE is the durable source of truth.
+jobs: dict[str, dict[str, Any]] = {job["id"]: job for job in JOB_STORE.list_owned(INSTANCE_OWNER_ID, MAX_TRACKED_JOBS)}
 
 class CreateJob(BaseModel):
     """Legacy v1 request. Dispatch is disabled; migrate clients to a consent-aware API."""
@@ -67,19 +70,33 @@ async def comfy_request(method: str, path: str, **kwargs: Any) -> Any:
     except httpx.HTTPError as exc:
         raise HTTPException(status_code=502, detail=f"ComfyUI request failed ({exc.__class__.__name__})") from exc
 
-def store_job(prompt_id: str, client_id: str, media_type: str) -> dict[str, Any]:
+def store_job(
+    prompt_id: str,
+    client_id: str,
+    media_type: str,
+    *,
+    workflow_id: str | None = None,
+    workflow_version: int | None = None,
+    parameters: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     if not prompt_id:
         raise HTTPException(status_code=502, detail="ComfyUI did not return prompt_id")
-    if len(jobs) >= MAX_TRACKED_JOBS:
+    if JOB_STORE.count() >= MAX_TRACKED_JOBS:
         raise HTTPException(status_code=503, detail="Job capacity reached; restart or clear completed jobs")
     job_id = str(uuid.uuid4())
     job = {"id": job_id, "prompt_id": prompt_id, "client_id": client_id,
-           "owner_id": INSTANCE_OWNER_ID, "type": media_type, "status": "QUEUED", "progress": 0.0}
+           "owner_id": INSTANCE_OWNER_ID, "type": media_type, "status": "QUEUED",
+           "progress": 0.0, "workflow_id": workflow_id, "workflow_version": workflow_version,
+           "parameters": parameters or {}, "outputs": []}
+    try:
+        JOB_STORE.create(job)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Job persistence failed") from exc
     jobs[job_id] = job
     return job
 
 def owned_job(job_id: str, principal_id: str) -> dict[str, Any]:
-    job = jobs.get(job_id)
+    job = JOB_STORE.get(job_id)
     if job is None or not hmac.compare_digest(str(job.get("owner_id", "")), principal_id):
         raise HTTPException(status_code=404, detail="Job not found")
     return job
@@ -120,7 +137,8 @@ async def create_job_v2(request: CreateJobV2, principal_id: str = Depends(author
     client_id = request.client_id or str(uuid.uuid4())
     response = await comfy_request("POST", "/prompt", json={"prompt": graph, "client_id": client_id})
     prompt_id = response.get("prompt_id") if isinstance(response, dict) else None
-    return store_job(prompt_id, client_id, registry.get_spec(request.workflow_id).media_type)
+    spec = registry.get_spec(request.workflow_id)
+    return store_job(prompt_id, client_id, spec.media_type, workflow_id=spec.workflow_id, workflow_version=spec.version, parameters=request.parameters)
 
 @app.post("/api/jobs", dependencies=[Depends(authorize)])
 async def create_job(request: CreateJob):
@@ -132,7 +150,7 @@ async def create_job(request: CreateJob):
 
 @app.get("/api/jobs")
 async def list_jobs(principal_id: str = Depends(authorize)):
-    return [job for job in jobs.values() if hmac.compare_digest(str(job.get("owner_id", "")), principal_id)]
+    return JOB_STORE.list_owned(principal_id, MAX_TRACKED_JOBS)
 
 @app.get("/api/jobs/{job_id}")
 async def get_job(job_id: str, principal_id: str = Depends(authorize)):
@@ -153,9 +171,13 @@ async def get_job(job_id: str, principal_id: str = Depends(authorize)):
                         files.extend(value)
         job["outputs"] = files
         job["progress"] = 1.0
+        JOB_STORE.update(job_id, status="COMPLETED", progress=1.0, outputs=files)
     elif status.get("status_str") == "error":
         job["status"] = "FAILED"
-    return job
+        JOB_STORE.update(job_id, status="FAILED")
+    else:
+        JOB_STORE.update(job_id, status=job.get("status", "QUEUED"), progress=float(job.get("progress", 0.0)))
+    return JOB_STORE.get(job_id) or job
 
 @app.get("/api/jobs/{job_id}/result")
 async def get_result(job_id: str, principal_id: str = Depends(authorize)):
