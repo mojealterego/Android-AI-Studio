@@ -4,7 +4,7 @@ Native Android client for a self-hosted image/video generation backend (FastAPI 
 
 ## Status
 
-Initial scaffold. The Android client currently contains a Compose UI prototype and API contract; backend deployment, workflow IDs, authentication, and device build verification remain to be completed.
+Phase D complete for the current single-instance architecture. The Android client implements the approval-aware v2 generation flow, the backend provides server-owned workflow dispatch, durable job tracking and lifecycle receipts, and GitHub CI verifies both the backend tests and the Android debug build.
 
 ## Architecture
 
@@ -18,7 +18,7 @@ Open this repository as a Gradle project. Use JDK 17 and Android SDK 35. Sync Gr
 
 ## Configure backend
 
-Set the backend base URL in the app's Settings screen. Use HTTPS outside a trusted local development network. The backend API contract is documented in `docs/backend-api.md`.
+Set the backend HTTPS URL, API key and separate approval token in the Android client. Credentials are held only in screen memory and are not persisted by the current client. Use HTTPS outside a trusted local development network. The backend API contract is documented in `docs/backend-api.md`.
 
 ## Safety and content
 
