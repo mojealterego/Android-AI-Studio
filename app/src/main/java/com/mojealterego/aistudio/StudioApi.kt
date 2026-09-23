@@ -109,6 +109,13 @@ data class JobResponse(
     val error: String? = null
 )
 
+data class CancelJobResponse(
+    val id: String,
+    val cancelled: Boolean,
+    val status: String,
+    val action: String? = null
+)
+
 data class JobResultResponse(
     val id: String,
     val outputs: List<JobOutput> = emptyList()
@@ -165,6 +172,13 @@ interface StudioApi {
         @Path("id") id: String,
         @Path("index") index: Int
     ): ResponseBody
+
+    @retrofit2.http.POST("api/jobs/{id}/cancel")
+    suspend fun cancelJob(
+        @Header("Authorization") authorization: String,
+        @Header("X-Approval-Token") approvalToken: String,
+        @Path("id") id: String
+    ): CancelJobResponse
 
     @GET("api/jobs/{id}/result")
     suspend fun getResult(
