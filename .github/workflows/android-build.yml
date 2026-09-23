@@ -30,14 +30,46 @@ jobs:
       - name: Assemble debug APK
         run: gradle :app:assembleDebug
 
-      - name: Bundle release AAB
-        run: gradle :app:bundleRelease
+      - name: Prepare release signing key
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          set -euo pipefail
+          test -n "$ANDROID_KEYSTORE_BASE64" || { echo "Missing ANDROID_KEYSTORE_BASE64 repository secret"; exit 1; }
+          printf "%s" "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/release-keystore.jks"
+
+      - name: Validate release signing configuration
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          test -n "$ANDROID_KEYSTORE_PASSWORD" || { echo "Missing ANDROID_KEYSTORE_PASSWORD repository secret"; exit 1; }
+          test -n "$ANDROID_KEY_ALIAS" || { echo "Missing ANDROID_KEY_ALIAS repository secret"; exit 1; }
+          test -n "$ANDROID_KEY_PASSWORD" || { echo "Missing ANDROID_KEY_PASSWORD repository secret"; exit 1; }
+
+      - name: Assemble signed release APK and AAB
+        env:
+          ANDROID_KEYSTORE_PATH: ${{ runner.temp }}/release-keystore.jks
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: gradle :app:assembleRelease :app:bundleRelease
 
       - name: Publish debug APK
         uses: actions/upload-artifact@v4
         with:
           name: android-ai-studio-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish release APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-ai-studio-release-apk
+          path: app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
           retention-days: 30
 
