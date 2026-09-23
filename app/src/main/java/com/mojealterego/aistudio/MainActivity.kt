@@ -629,11 +629,33 @@ private fun StudioScreen() {
                 }
             }
 
-            Text(status, style = MaterialTheme.typography.bodyMedium)
+            Card(Modifier.fillMaxWidth()) {
+                Column(
+                    Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("STATUS", style = MaterialTheme.typography.labelMedium)
+                        job?.let { Text(it.status, style = MaterialTheme.typography.labelMedium) }
+                    }
+                    Text(status, style = MaterialTheme.typography.bodyMedium)
+                    job?.takeIf { it.status == "RUNNING" }?.let { current ->
+                        LinearProgressIndicator(
+                            progress = { current.progress.toFloat().coerceIn(0f, 1f) },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Text(
+                            "${"%.1f".format(current.progress * 100)}% · generowanie w toku",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                }
+            }
 
             job?.let { response ->
                 HorizontalDivider()
-                Text("Zadanie: ${response.id}", style = MaterialTheme.typography.titleSmall)
+                Text("ZADANIE", style = MaterialTheme.typography.labelMedium)
+                Text(response.id, style = MaterialTheme.typography.titleSmall)
                 Text(
                     when (response.status) {
                         "QUEUED" -> "Status: W kolejce" + (response.queue_position?.let { " · pozycja " + it } ?: "")
