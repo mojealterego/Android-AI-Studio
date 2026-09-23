@@ -5,6 +5,7 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -58,9 +59,6 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Validate the actual private-key password before Gradle packaging.
-          # If keytool was told to reuse the keystore password, support that
-          # valid PKCS12 configuration without requiring a duplicate secret.
           if keytool -list \
               -keystore "$ANDROID_KEYSTORE_PATH" \
               -storepass "$ANDROID_KEYSTORE_PASSWORD" \
