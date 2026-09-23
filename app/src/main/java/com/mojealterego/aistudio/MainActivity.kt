@@ -28,10 +28,13 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.CancellationException
@@ -74,6 +77,145 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent { MaterialTheme(colorScheme = StudioColors) { StudioScreen() } }
+    }
+}
+
+private val Obsidian = Color(0xFF080807)
+private val ObsidianPanel = Color(0xFF11100D)
+private val Gold24 = Color(0xFFD4AF37)
+private val GoldSoft = Color(0xFFE6C65C)
+private val Ivory = Color(0xFFF4F0E6)
+private val MutedGold = Color(0xFF9F8750)
+
+private val StudioTypography = Typography(
+    displayLarge = Typography().displayLarge.copy(fontFamily = FontFamily.Serif),
+    displayMedium = Typography().displayMedium.copy(fontFamily = FontFamily.Serif),
+    displaySmall = Typography().displaySmall.copy(fontFamily = FontFamily.Serif),
+    headlineLarge = Typography().headlineLarge.copy(fontFamily = FontFamily.Serif),
+    headlineMedium = Typography().headlineMedium.copy(fontFamily = FontFamily.Serif),
+    headlineSmall = Typography().headlineSmall.copy(fontFamily = FontFamily.Serif),
+    titleLarge = Typography().titleLarge.copy(fontFamily = FontFamily.Serif, fontWeight = FontWeight.SemiBold),
+    titleMedium = Typography().titleMedium.copy(fontFamily = FontFamily.Serif),
+    titleSmall = Typography().titleSmall.copy(fontFamily = FontFamily.Serif),
+    bodyLarge = Typography().bodyLarge.copy(fontFamily = FontFamily.Serif),
+    bodyMedium = Typography().bodyMedium.copy(fontFamily = FontFamily.Serif),
+    bodySmall = Typography().bodySmall.copy(fontFamily = FontFamily.Serif),
+    labelLarge = Typography().labelLarge.copy(fontFamily = FontFamily.Serif, fontWeight = FontWeight.SemiBold),
+    labelMedium = Typography().labelMedium.copy(fontFamily = FontFamily.Serif),
+    labelSmall = Typography().labelSmall.copy(fontFamily = FontFamily.Serif)
+)
+
+private val StudioColors = darkColorScheme(
+    primary = Gold24,
+    onPrimary = Obsidian,
+    secondary = GoldSoft,
+    onSecondary = Obsidian,
+    background = Obsidian,
+    onBackground = Ivory,
+    surface = ObsidianPanel,
+    onSurface = Ivory,
+    surfaceVariant = Color(0xFF201D16),
+    onSurfaceVariant = Color(0xFFD0C8B6),
+    outline = MutedGold,
+    error = Color(0xFFFF8A80)
+)
+
+@Composable
+private fun StudioTheme(content: @Composable () -> Unit) {
+    MaterialTheme(
+        colorScheme = StudioColors,
+        typography = StudioTypography,
+        content = content
+    )
+}
+
+@Composable
+private fun StudioLogo() {
+    Row(
+        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Surface(
+            modifier = Modifier.size(48.dp),
+            shape = RoundedCornerShape(12.dp),
+            color = Obsidian,
+            border = androidx.compose.foundation.BorderStroke(1.dp, Gold24)
+        ) {
+            Box(contentAlignment = androidx.compose.ui.Alignment.Center) {
+                Text(
+                    "MA",
+                    color = Gold24,
+                    fontFamily = FontFamily.Serif,
+                    fontWeight = FontWeight.Bold,
+                    style = MaterialTheme.typography.titleMedium
+                )
+            }
+        }
+        Column {
+            Text(
+                "MOJE ALTEREGO",
+                color = Gold24,
+                fontFamily = FontFamily.Serif,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 1.8.sp,
+                style = MaterialTheme.typography.titleMedium
+            )
+            Text(
+                "AI STUDIO · PRIVATE GENERATION",
+                color = Color(0xFFB8AE9A),
+                fontFamily = FontFamily.Serif,
+                letterSpacing = 1.1.sp,
+                style = MaterialTheme.typography.labelSmall
+            )
+        }
+    }
+}
+
+@Composable
+private fun ModelLibraryCard() {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = ObsidianPanel),
+        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF5E4D26))
+    ) {
+        Column(
+            Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Text("BIBLIOTEKA MODELI", color = Gold24, style = MaterialTheme.typography.labelLarge)
+            Text(
+                "GGUF / SAFE-TENSORS · prywatny host ComfyUI",
+                color = Ivory,
+                style = MaterialTheme.typography.titleMedium
+            )
+            Text(
+                "Pliki modeli pozostają na prywatnym hoście GPU. Telefon steruje katalogiem i workflow — nie pakuje wielogigabajtowych modeli do APK.",
+                color = Color(0xFFC9C1B0),
+                style = MaterialTheme.typography.bodySmall
+            )
+            ModelRow("OBRAZ", "Flux / Qwen Image / Z-Image", "models/gguf/")
+            ModelRow("WAN 2.1", "T2V / I2V · GGUF", "models/gguf/ + text_encoders/wan/")
+            ModelRow("WAN 2.2", "T2V / I2V · GGUF", "models/unet/ + text_encoders/")
+            ModelRow("VAE / ENCODER", "WAN VAE + UMT5", "models/vae/ + models/text_encoders/")
+        }
+    }
+}
+
+@Composable
+private fun ModelRow(kind: String, model: String, path: String) {
+    Surface(
+        color = Color(0xFF0C0B09),
+        shape = RoundedCornerShape(10.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF332A18))
+    ) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text(kind, color = GoldSoft, style = MaterialTheme.typography.labelSmall)
+                Text("GGUF", color = MutedGold, style = MaterialTheme.typography.labelSmall)
+            }
+            Text(model, color = Ivory, style = MaterialTheme.typography.bodyMedium)
+            Text(path, color = Color(0xFF9E9583), style = MaterialTheme.typography.bodySmall)
+        }
     }
 }
 
@@ -592,7 +734,7 @@ private fun StudioScreen() {
             }
 
             if (workflows.isNotEmpty()) {
-                Text("Workflow", style = MaterialTheme.typography.titleMedium)
+                Text("WORKFLOW", color = Gold24, style = MaterialTheme.typography.titleMedium)
                 workflows.filter { it.type.equals(mode, true) }.forEach { workflow ->
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         RadioButton(selected = selectedId == workflow.id, onClick = {
@@ -610,7 +752,7 @@ private fun StudioScreen() {
             }
 
             selected?.let { workflow ->
-                Text("Parametry workflow", style = MaterialTheme.typography.titleMedium)
+                Text("PARAMETRY WORKFLOW", color = Gold24, style = MaterialTheme.typography.titleMedium)
                 workflow.parameters.forEach { (name, spec) ->
                     val isPrompt = name.equals("prompt", true) || name.equals("positive_prompt", true)
                     val isNegative = name.equals("negative_prompt", true) || name.equals("negative", true)
@@ -743,7 +885,7 @@ private fun StudioScreen() {
 
             job?.let { response ->
                 HorizontalDivider()
-                Text("ZADANIE", style = MaterialTheme.typography.labelMedium)
+                Text("ZADANIE", color = Gold24, style = MaterialTheme.typography.labelMedium)
                 Text(response.id, style = MaterialTheme.typography.titleSmall)
                 Text(
                     when (response.status) {
@@ -764,7 +906,7 @@ private fun StudioScreen() {
                     ) { Text("Anuluj generowanie") }
                 }
                 if (response.outputs.isNotEmpty()) {
-                    Text("Wyniki", style = MaterialTheme.typography.titleMedium)
+                    Text("WYNIKI", color = Gold24, style = MaterialTheme.typography.titleMedium)
                     response.outputs.forEachIndexed { index, output ->
                         Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             Text(
