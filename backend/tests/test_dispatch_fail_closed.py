@@ -8,12 +8,18 @@ from fastapi import HTTPException
 from app.main import CreateJob, CreateJobV2, create_job, create_job_v2
 
 
-def test_v2_dispatch_is_blocked_until_consent_is_integrated():
-    request = CreateJobV2(workflow_id="test_workflow", parameters={})
+def test_v2_dispatch_requires_consent():
+    request = CreateJobV2(
+        workflow_id="test_workflow",
+        parameters={},
+        grant_id="missing",
+        session_id="session-1",
+        task_id="task-1",
+    )
     with pytest.raises(HTTPException) as exc:
-        asyncio.run(create_job_v2(request))
-    assert exc.value.status_code == 503
-    assert exc.value.detail["code"] == "CONSENT_ENFORCEMENT_NOT_CONFIGURED"
+        asyncio.run(create_job_v2(request, "single-instance"))
+    assert exc.value.status_code == 403
+    assert exc.value.detail == "Consent denied"
 
 
 def test_legacy_arbitrary_graph_dispatch_is_gone():
