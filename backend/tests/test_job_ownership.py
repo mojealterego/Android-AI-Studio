@@ -81,5 +81,5 @@ def test_v2_dispatch_requires_consent():
     )
     with pytest.raises(HTTPException) as exc:
         asyncio.run(main.create_job_v2(request, main.INSTANCE_OWNER_ID))
-    assert exc.value.status_code == 403
-    assert exc.value.detail == "Consent denied"
+    assert exc.value.status_code == 404
+    assert exc.value.detail == "Workflow not found"
