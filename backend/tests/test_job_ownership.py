@@ -3,12 +3,14 @@
 import asyncio
 
 import pytest
+from datetime import datetime, timezone
 from fastapi import HTTPException
 
 from app import main
 
 
 def setup_function():
+    main.JOB_STORE.clear()
     main.jobs.clear()
 
 
@@ -18,18 +20,23 @@ def test_store_job_assigns_server_controlled_instance_owner():
     assert job["client_id"] == "client-supplied"
 
 
+def _job(job_id, owner_id, prompt_id=None):
+    return {
+        "id": job_id, "prompt_id": prompt_id or job_id, "client_id": "client",
+        "owner_id": owner_id, "type": "IMAGE", "status": "QUEUED", "progress": 0.0,
+        "parameters": {}, "outputs": [],
+    }
+
+
 def test_list_jobs_filters_out_records_without_matching_owner():
-    main.jobs.update({
-        "owned": {"id": "owned", "owner_id": main.INSTANCE_OWNER_ID},
-        "foreign": {"id": "foreign", "owner_id": "different-instance"},
-        "legacy": {"id": "legacy"},
-    })
+    main.JOB_STORE.create(_job("owned", main.INSTANCE_OWNER_ID))
+    main.JOB_STORE.create(_job("foreign", "different-instance"))
     result = asyncio.run(main.list_jobs(main.INSTANCE_OWNER_ID))
     assert [job["id"] for job in result] == ["owned"]
 
 
 def test_foreign_and_missing_job_ids_return_same_404():
-    main.jobs["foreign"] = {"id": "foreign", "owner_id": "different-instance"}
+    main.JOB_STORE.create(_job("foreign", "different-instance"))
     for job_id in ("foreign", "missing"):
         with pytest.raises(HTTPException) as exc:
             main.owned_job(job_id, main.INSTANCE_OWNER_ID)
@@ -38,9 +45,7 @@ def test_foreign_and_missing_job_ids_return_same_404():
 
 
 def test_foreign_job_status_does_not_call_comfyui(monkeypatch):
-    main.jobs["foreign"] = {
-        "id": "foreign", "owner_id": "different-instance", "prompt_id": "secret-prompt"
-    }
+    main.JOB_STORE.create(_job("foreign", "different-instance", "secret-prompt"))
     calls = []
 
     async def fake_comfy_request(*args, **kwargs):
