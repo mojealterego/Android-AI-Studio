@@ -16,21 +16,7 @@ android {
         versionName = "0.1.0"
     }
 
-    signingConfigs {
-        create("release") {
-            val keystorePath = System.getenv("ANDROID_KEYSTORE_PATH")
-            val keystorePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
-            val keyAlias = System.getenv("ANDROID_KEY_ALIAS")
-            val keyPassword = System.getenv("ANDROID_KEY_PASSWORD")
-            if (!keystorePath.isNullOrBlank() && !keystorePassword.isNullOrBlank() && !keyAlias.isNullOrBlank() && !keyPassword.isNullOrBlank()) {
-                storeFile = file(keystorePath)
-                storePassword = keystorePassword
-                this.keyAlias = keyAlias
-                this.keyPassword = keyPassword
-            }
-        }
-    }
-
+    // Release builds are intentionally unsigned in CI until production signing is configured.
     buildFeatures { compose = true }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -40,7 +26,7 @@ android {
 
     buildTypes {
         getByName("release") {
-            signingConfig = signingConfigs.getByName("release")
+            // Unsigned release artifact; production signing can be added later without changing the app.
         }
     }
 }
