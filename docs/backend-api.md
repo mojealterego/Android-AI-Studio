@@ -84,3 +84,16 @@ The proxy is intentionally not a public object-storage URL or bearerless downloa
 - GET /api/jobs/{job_id} reconciles ComfyUI history and queue state. An execution_interrupted history message is reported as CANCELLED, not as a generic failure.
 - Queue position is exposed as queue_position while a job is queued. The existing percentage field is not treated as a fake estimate; precise per-node sampling progress remains a future WebSocket integration.
 - Android can open results, show sampled in-app image previews, save images/videos into Android MediaStore on Android 10+, and removes stale private cache files older than 24 hours.
+
+
+### Real-time progress (Phase G)
+
+The backend exposes GET /api/jobs/{job_id}/progress as an authenticated WebSocket endpoint.
+
+- The API authenticates the normal bearer credential and optional approval credential before accepting the socket.
+- Job ownership is checked before the backend connects to ComfyUI.
+- The backend opens ComfyUI's private /ws using the job's server-owned client_id and forwards only events matching that job's prompt_id.
+- Progress events expose value, max, normalized progress, and the active node.
+- Execution lifecycle events are forwarded without exposing ComfyUI's host to Android.
+- Binary preview frames are deliberately dropped; media continues through the authenticated HTTP proxy.
+- If the upstream WebSocket is unavailable, Android falls back to the existing authenticated polling path.
