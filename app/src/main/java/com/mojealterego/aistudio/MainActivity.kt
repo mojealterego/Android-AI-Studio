@@ -725,7 +725,7 @@ private fun errorMessage(error: Exception): String = when (error) {
 
 
 private fun mimeTypeForFilename(filename: String?): String {
-    return when (filename?.substringAfterLast('.', "").lowercase()) {
+    return when ((filename?.substringAfterLast('.', "") ?: "").lowercase()) {
         "jpg", "jpeg" -> "image/jpeg"
         "png" -> "image/png"
         "webp" -> "image/webp"
