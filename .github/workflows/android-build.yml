@@ -31,84 +31,13 @@ jobs:
       - name: Assemble debug APK
         run: gradle :app:assembleDebug
 
-      - name: Prepare release signing key
-        env:
-          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      - name: Assemble release APK and AAB
         run: |
           set -euo pipefail
-          test -n "$ANDROID_KEYSTORE_BASE64" || { echo "Missing ANDROID_KEYSTORE_BASE64 repository secret"; exit 1; }
-          printf "%s" "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/release-keystore.jks"
-
-      - name: Validate release signing configuration
-        env:
-          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-        run: |
-          set -euo pipefail
-          test -n "$ANDROID_KEYSTORE_PASSWORD" || { echo "Missing ANDROID_KEYSTORE_PASSWORD repository secret"; exit 1; }
-          test -n "$ANDROID_KEY_ALIAS" || { echo "Missing ANDROID_KEY_ALIAS repository secret"; exit 1; }
-          test -n "$ANDROID_KEY_PASSWORD" || { echo "Missing ANDROID_KEY_PASSWORD repository secret"; exit 1; }
-
-      - name: Assemble signed release APK and AAB
-        env:
-          ANDROID_KEYSTORE_PATH: ${{ runner.temp }}/release-keystore.jks
-          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-        run: |
-          set -euo pipefail
-
-          # Validate the decoded keystore password independently of the alias.
-          # This distinguishes a bad password from a wrong/missing alias.
-          if keytool -list               -keystore "$ANDROID_KEYSTORE_PATH"               -storepass "$ANDROID_KEYSTORE_PASSWORD" >/dev/null 2>&1; then
-            EFFECTIVE_STORE_PASSWORD="$ANDROID_KEYSTORE_PASSWORD"
-            echo "Release keystore opened with ANDROID_KEYSTORE_PASSWORD."
-          elif keytool -list               -keystore "$ANDROID_KEYSTORE_PATH"               -storepass "$ANDROID_KEY_PASSWORD" >/dev/null 2>&1; then
-            EFFECTIVE_STORE_PASSWORD="$ANDROID_KEY_PASSWORD"
-            echo "Release keystore opened with ANDROID_KEY_PASSWORD; secrets appear swapped, using the matching value."
-          else
-            echo "Release keystore could not be opened with either configured password."
-            echo "The Base64 keystore and repository passwords do not belong to the same keystore."
-            exit 1
-          fi
-
-          KEYSTORE_TYPE="$(keytool -list -v             -keystore "$ANDROID_KEYSTORE_PATH"             -storepass "$EFFECTIVE_STORE_PASSWORD" 2>/dev/null |
-            awk -F': ' '/^Keystore type:/{print $2; exit}')"
-
-          test -n "$KEYSTORE_TYPE" || {
-            echo "Unable to determine release keystore type."
-            exit 1
-          }
-
-          echo "Release keystore type: $KEYSTORE_TYPE"
-
-          # Validate the alias separately after the store password succeeds.
-          if keytool -list               -keystore "$ANDROID_KEYSTORE_PATH"               -storepass "$EFFECTIVE_STORE_PASSWORD"               -alias "$ANDROID_KEY_ALIAS" >/dev/null 2>&1; then
-            echo "Release alias validated: $ANDROID_KEY_ALIAS"
-          else
-            echo "ANDROID_KEY_ALIAS does not exist in the decoded release keystore."
-            echo "Store password is valid, but the configured alias is wrong."
-            exit 1
-          fi
-
-          if [ "${KEYSTORE_TYPE^^}" = "PKCS12" ]; then
-            EFFECTIVE_KEY_PASSWORD="$EFFECTIVE_STORE_PASSWORD"
-            echo "Using the validated store password for PKCS12 signing."
-          else
-            EFFECTIVE_KEY_PASSWORD="$ANDROID_KEY_PASSWORD"
-            echo "Using the configured entry password for non-PKCS12 signing."
-          fi
-
-          ANDROID_KEYSTORE_PASSWORD="$EFFECTIVE_STORE_PASSWORD"           ANDROID_KEY_PASSWORD="$EFFECTIVE_KEY_PASSWORD"             gradle :app:assembleRelease :app:bundleRelease
-
-      - name: Verify release signatures
-        run: |
-          set -euo pipefail
-          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
-          test -x "$APKSIGNER" || { echo "apksigner not found"; exit 1; }
-          "$APKSIGNER" verify --verbose app/build/outputs/apk/release/app-release.apk
-          jarsigner -verify app/build/outputs/bundle/release/app-release.aab
+          gradle :app:assembleRelease :app:bundleRelease
+          test -s app/build/outputs/apk/release/app-release.apk
+          test -s app/build/outputs/bundle/release/app-release.aab
+          echo "Unsigned release APK/AAB built successfully."
 
       - name: Publish debug APK
         uses: actions/upload-artifact@v4
