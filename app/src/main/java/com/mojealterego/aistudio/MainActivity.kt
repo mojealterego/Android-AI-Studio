@@ -28,9 +28,13 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import okhttp3.WebSocket
+import okhttp3.WebSocketListener
+import okhttp3.Response
 import retrofit2.HttpException
 import java.io.File
 import java.io.IOException
+import org.json.JSONObject
 import java.util.UUID
 
 class MainActivity : ComponentActivity() {
@@ -326,6 +330,69 @@ private fun StudioScreen() {
             context.cacheDir.listFiles()
                 ?.filter { it.name.startsWith("aistudio-") && System.currentTimeMillis() - it.lastModified() > 24L * 60L * 60L * 1000L }
                 ?.forEach { it.delete() }
+        }
+    }
+
+    LaunchedEffect(job?.id, server, apiKey, approvalToken) {
+        val currentJob = job ?: return@LaunchedEffect
+        if (server.isBlank() || apiKey.isBlank() || approvalToken.isBlank()) return@LaunchedEffect
+        if (currentJob.status in setOf("COMPLETED", "FAILED", "CANCELLED", "UNKNOWN")) return@LaunchedEffect
+
+        val socket = StudioApi.openProgressWebSocket(
+            server,
+            authorization(),
+            approvalToken.trim(),
+            currentJob.id,
+            object : WebSocketListener() {
+                override fun onMessage(webSocket: WebSocket, text: String) {
+                    try {
+                        val json = JSONObject(text)
+                        when (json.optString("type")) {
+                            "progress" -> {
+                                val fraction = json.optDouble("progress", 0.0).coerceIn(0.0, 1.0)
+                                scope.launch {
+                                    job = job?.copy(status = "RUNNING", progress = fraction)
+                                    status = "Generowanie: " + "%.1f".format(fraction * 100) + "%"
+                                }
+                            }
+                            "executing", "execution_start", "execution_cached", "executed" -> {
+                                scope.launch { status = "Generowanie w toku." }
+                            }
+                            "terminal" -> {
+                                val terminalStatus = json.optString("status", "UNKNOWN")
+                                scope.launch {
+                                    job = job?.copy(status = terminalStatus, progress = if (terminalStatus == "COMPLETED") 1.0 else 0.0)
+                                    status = when (terminalStatus) {
+                                        "COMPLETED" -> "Generowanie zakończone."
+                                        "FAILED" -> "Generowanie zakończone błędem."
+                                        "CANCELLED" -> "Generowanie anulowane."
+                                        else -> "Stan zadania: " + terminalStatus
+                                    }
+                                }
+                                webSocket.close(1000, "terminal")
+                            }
+                            "upstream_unavailable" -> scope.launch {
+                                status = "Kanał postępu chwilowo niedostępny; działa odpytywanie awaryjne."
+                            }
+                        }
+                    } catch (_: Exception) {
+                        // Polling remains the authoritative fallback.
+                    }
+                }
+
+                override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                    scope.launch {
+                        if (job?.status !in setOf("COMPLETED", "FAILED", "CANCELLED", "UNKNOWN")) {
+                            status = "Kanał postępu niedostępny; używam odpytywania awaryjnego."
+                        }
+                    }
+                }
+            }
+        )
+        try {
+            kotlinx.coroutines.awaitCancellation()
+        } finally {
+            socket.close(1000, "screen-lifecycle")
         }
     }
 
