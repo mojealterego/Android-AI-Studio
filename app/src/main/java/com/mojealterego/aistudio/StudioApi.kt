@@ -108,6 +108,7 @@ data class JobResponse(
     val type: String? = null,
     val status: String,
     val progress: Double = 0.0,
+    val queue_position: Int? = null,
     val outputs: List<JobOutput> = emptyList(),
     val error: String? = null
 )
