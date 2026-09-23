@@ -73,3 +73,14 @@ Completed job outputs are exposed only through an authenticated backend media pr
 - Android downloads through the authenticated proxy and opens the resulting file through an app-cache-only `FileProvider`.
 
 The proxy is intentionally not a public object-storage URL or bearerless download link. A future multi-user deployment should bind media access to the same external identity/tenant model used for job ownership.
+
+
+### Job cancellation and lifecycle (Phase F)
+
+- POST /api/jobs/{job_id}/cancel is authenticated and ownership-scoped.
+- Pending jobs are removed with ComfyUI POST /queue using the exact prompt_id.
+- Running jobs are interrupted with a prompt-scoped POST /interrupt body; the backend never sends a global/unscoped interrupt.
+- Cancellation is idempotent for terminal jobs and is persisted as CANCELLED.
+- GET /api/jobs/{job_id} reconciles ComfyUI history and queue state. An execution_interrupted history message is reported as CANCELLED, not as a generic failure.
+- Queue position is exposed as queue_position while a job is queued. The existing percentage field is not treated as a fake estimate; precise per-node sampling progress remains a future WebSocket integration.
+- Android can open results, show sampled in-app image previews, save images/videos into Android MediaStore on Android 10+, and removes stale private cache files older than 24 hours.
