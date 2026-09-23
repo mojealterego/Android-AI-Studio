@@ -8,6 +8,7 @@ from app import main
 from app.consent_binding import workflow_resource
 from app.consent_core import Access, Duration, Grant
 from app.consent_store import ConsentStore
+from app.receipt_store import ReceiptStore
 from app.workflow_registry import WorkflowRegistry
 
 
@@ -35,6 +36,7 @@ def make_registry(tmp_path):
 def test_v2_dispatch_requires_exact_consent(monkeypatch, tmp_path):
     store = ConsentStore(tmp_path / "consent.sqlite3")
     monkeypatch.setattr(main, "CONSENT_STORE", store)
+    monkeypatch.setattr(main, "RECEIPT_STORE", ReceiptStore(tmp_path / "receipts.sqlite3"))
     monkeypatch.setattr(main, "registry", make_registry(tmp_path / "registry"))
     main.jobs.clear()
 
@@ -56,6 +58,7 @@ def test_v2_dispatch_consumes_matching_grant_and_sends_server_graph(monkeypatch,
     store = ConsentStore(tmp_path / "consent.sqlite3")
     registry = make_registry(tmp_path / "registry")
     monkeypatch.setattr(main, "CONSENT_STORE", store)
+    monkeypatch.setattr(main, "RECEIPT_STORE", ReceiptStore(tmp_path / "receipts.sqlite3"))
     monkeypatch.setattr(main, "registry", registry)
     main.jobs.clear()
 
@@ -100,3 +103,83 @@ def test_v2_dispatch_consumes_matching_grant_and_sends_server_graph(monkeypatch,
     with pytest.raises(main.HTTPException) as exc:
         asyncio.run(main.create_job_v2(request, main.INSTANCE_OWNER_ID))
     assert exc.value.status_code == 403
+
+
+def test_dispatch_does_not_call_comfyui_when_parameters_change(monkeypatch, tmp_path):
+    store = ConsentStore(tmp_path / "consent.sqlite3")
+    monkeypatch.setattr(main, "CONSENT_STORE", store)
+    monkeypatch.setattr(main, "RECEIPT_STORE", ReceiptStore(tmp_path / "receipts.sqlite3"))
+    monkeypatch.setattr(main, "registry", make_registry(tmp_path / "registry"))
+
+    parameters = {"prompt": "approved prompt"}
+    grant = Grant(
+        subject_id=main.INSTANCE_OWNER_ID,
+        resource=workflow_resource("test-image", parameters),
+        access=frozenset({Access.WRITE}),
+        duration=Duration.ONCE,
+        created_at=datetime.now(timezone.utc),
+        session_id="session-1",
+        task_id="task-1",
+    )
+    store.create("grant-1", grant)
+    calls = []
+
+    async def fake_comfy_request(*args, **kwargs):
+        calls.append((args, kwargs))
+        return {"prompt_id": "should-not-happen"}
+
+    monkeypatch.setattr(main, "comfy_request", fake_comfy_request)
+    request = main.CreateJobV2(
+        workflow_id="test-image",
+        parameters={"prompt": "tampered prompt"},
+        grant_id="grant-1",
+        session_id="session-1",
+        task_id="task-1",
+    )
+    with pytest.raises(main.HTTPException) as exc:
+        asyncio.run(main.create_job_v2(request, main.INSTANCE_OWNER_ID))
+    assert exc.value.status_code == 403
+    assert calls == []
+
+
+def test_ambiguous_comfyui_outcome_is_unknown_and_grant_is_not_replayed(monkeypatch, tmp_path):
+    store = ConsentStore(tmp_path / "consent.sqlite3")
+    receipts = ReceiptStore(tmp_path / "receipts.sqlite3")
+    monkeypatch.setattr(main, "CONSENT_STORE", store)
+    monkeypatch.setattr(main, "RECEIPT_STORE", receipts)
+    monkeypatch.setattr(main, "registry", make_registry(tmp_path / "registry"))
+
+    parameters = {"prompt": "approved prompt"}
+    grant = Grant(
+        subject_id=main.INSTANCE_OWNER_ID,
+        resource=workflow_resource("test-image", parameters),
+        access=frozenset({Access.WRITE}),
+        duration=Duration.ONCE,
+        created_at=datetime.now(timezone.utc),
+        session_id="session-1",
+        task_id="task-1",
+    )
+    store.create("grant-1", grant)
+
+    async def ambiguous(*args, **kwargs):
+        raise main.HTTPException(
+            status_code=502,
+            detail={"code": "COMFYUI_AMBIGUOUS"},
+        )
+
+    monkeypatch.setattr(main, "comfy_request", ambiguous)
+    request = main.CreateJobV2(
+        workflow_id="test-image",
+        parameters=parameters,
+        grant_id="grant-1",
+        session_id="session-1",
+        task_id="task-1",
+    )
+    with pytest.raises(main.HTTPException) as exc:
+        asyncio.run(main.create_job_v2(request, main.INSTANCE_OWNER_ID))
+    assert exc.value.status_code == 502
+    assert "unknown" in str(exc.value.detail).lower()
+
+    with pytest.raises(main.HTTPException) as replay:
+        asyncio.run(main.create_job_v2(request, main.INSTANCE_OWNER_ID))
+    assert replay.value.status_code == 403
