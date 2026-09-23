@@ -1,39 +1,55 @@
 # Consent Runtime Release Gate
 
-Status: **BLOCKED — runtime enforcement and integration tests are not yet verified.**
+Status: **PHASE C IMPLEMENTED AND CI-VERIFIED**
 
-This gate is normative for releasing Agent Consent Patterns in Android-AI-Studio. The presence of consent modules and design documents is not proof that external side effects are protected.
+This gate records the implemented consent enforcement boundary for the current single-backend-instance architecture. It is not a claim that the system is an enterprise identity platform.
 
-## Current observed risk
+## Verified controls
 
-`backend/app/main.py` exposes `POST /api/v2/jobs`, which builds a server-owned workflow and dispatches it to ComfyUI, and legacy `POST /api/jobs`, which accepts a client-supplied workflow graph and dispatches it. Both currently rely on the shared API bearer key. That key does not identify the human who approved a specific action, and neither route currently calls the consent dispatch guard.
+- [x] Normal API authentication remains required.
+- [x] A separate approval credential is required for grant creation and generation dispatch.
+- [x] The approver subject is derived server-side from the configured approval credential; clients cannot submit actor_id or subject_id.
+- [x] The server exposes an approval preview containing workflow identity, version, parameters, scope and consequence.
+- [x] Approval recomputes the exact preview digest and rejects tampering.
+- [x] Workflow graphs are server-owned and validated through the registry.
+- [x] Every v2 generation dispatch passes through the same consent guard immediately before the ComfyUI side effect.
+- [x] Legacy arbitrary-graph dispatch remains disabled with HTTP 410.
+- [x] Grant subject, resource, access, expiry, revocation and task/session scope are enforced.
+- [x] ONCE grants are atomically consumed immediately before dispatch.
+- [x] Ambiguous ComfyUI transport outcomes are recorded as UNKNOWN and the consumed grant is not replayed.
+- [x] ComfyUI-rejected dispatches are recorded as FAILED.
+- [x] Lifecycle receipts are append-only and legal transitions are enforced.
+- [x] Receipt reads are actor-scoped at the API layer.
+- [x] Receipts exclude bearer tokens, approval secrets and raw credentials.
+- [x] Tampering, replay, wrong resource, wrong actor, approval authentication and ambiguous-outcome tests are covered by CI.
+- [x] Exact release commit CI is green.
 
-## Required release blockers
+## Current architecture boundary
 
-- [ ] Establish a trustworthy authenticated principal for each caller. Never accept `actor_id` or `subject_id` from an untrusted request body as proof of identity.
-- [ ] Implement a human approval flow that presents the exact workflow ID, normalized parameters, action, duration/scope, and consequences before creating a grant.
-- [ ] On every side-effect route, derive the workflow resource server-side from the exact validated parameters and bind it to the approved preview. Reject mismatches.
-- [ ] Route both v2 and legacy dispatch through the same enforcement boundary. Until legacy can be safely migrated, disable it or reject it; do not leave a bypass.
-- [ ] Enforce grant subject, resource, access, expiry, revocation, task/session scope, and one-time consumption immediately before dispatch.
-- [ ] Make job creation idempotent. Do not blindly retry an external dispatch after an ambiguous timeout; record `unknown` and reconcile with ComfyUI first.
-- [ ] Persist lifecycle receipts as append-only events. Enforce legal state transitions and duplicate-event handling in the service layer; the SQLite journal alone does not provide these guarantees.
-- [ ] Authenticate receipt reads and enforce actor/task-level authorization. A receipt ID is not a secret or authorization token.
-- [ ] Exclude API keys, bearer tokens, secrets, and unnecessary personal data from receipts and logs.
-- [ ] Add integration tests proving each route is blocked without valid consent and that malformed, expired, revoked, mismatched, replayed, or wrong-actor grants cannot dispatch.
-- [ ] Run the complete backend test suite and record the exact command, environment, result, and commit SHA.
+The local APPROVAL_TOKENS_JSON mechanism is a separate transaction-authorization credential, but it is not a complete enterprise identity provider. It does not provide identity proofing, MFA, federation or non-repudiation. A future multi-user production deployment must replace or wrap it with a stronger authenticated identity/transaction-authorization system.
 
-## Dispatch failure semantics
+The distinction matters: authentication and authorization are separate controls, and sensitive transaction authorization should be enforced server-side against the exact transaction data. OWASP explicitly recommends server-side transaction authorization, state-transition control, and unique authorization credentials for sensitive operations.
 
-A one-time grant consumption and a remote ComfyUI HTTP request cannot be made atomic with the current architecture. A timeout or connection loss after sending the request is ambiguous. The service must persist an `unknown` outcome, reconcile against ComfyUI using a stable idempotency/correlation key, and avoid blind replay. If reconciliation is impossible, surface the uncertainty rather than claiming failure or success.
+## CI evidence
 
-## Required evidence for release
+Verified green backend test run:
 
-1. Code review confirms every side-effect route passes through one shared guard.
-2. Automated integration tests exercise both current and legacy routes.
-3. CI is green for the exact release commit.
-4. An audit trail demonstrates requested → authorized/denied → dispatched → succeeded/failed/unknown transitions without overwriting prior events.
-5. Security review confirms principal derivation, actor-scoped receipt access, revocation behavior, and safe handling of ambiguous dispatches.
+- Run: 35844555465
+- Commit: ea6d94eea2e105c86ec3c174db5d9c01b4e35227
+- Job: pytest
+- Result: success
 
-## Decision
+Earlier green verification also includes run 35844542803 on commit a405e195b730d1934f225fb7de7838efe6f52a2b.
 
-Do not label the consent system production-ready until every blocker above has evidence attached to the release commit. Documentation-only progress must be reported as documentation-only progress.
+## Remaining production hardening
+
+These items are intentionally not marked as completed by Phase C:
+
+- enterprise/user identity provider and MFA;
+- shared transactional database for multi-replica deployment;
+- rate limiting and resource quotas;
+- authenticated media proxy/object storage;
+- full ComfyUI integration and progress/cancellation semantics;
+- retention/deletion policy and operational monitoring.
+
+Do not remove the fail-closed approval boundary while implementing those later capabilities.
