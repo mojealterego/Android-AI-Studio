@@ -103,6 +103,57 @@ private fun StudioScreen() {
         }
     }
 
+    fun saveMedia(jobId: String, index: Int, filename: String?) {
+        scope.launch {
+            busy = true
+            status = "Pobieranie wyniku do galerii…"
+            try {
+                val body = api().getMedia(authorization(), approvalToken.trim(), jobId, index)
+                val mime = body.contentType()?.toString() ?: mimeTypeForFilename(filename)
+                val safeName = (filename ?: "aistudio-$jobId-$index").replace(Regex("[^A-Za-z0-9._-]"), "_")
+                val temp = File(context.cacheDir, "aistudio-save-$jobId-$index-$safeName")
+                body.byteStream().use { input -> temp.outputStream().use { output -> input.copyTo(output) } }
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                    saveToMediaStore(context, temp, safeName, mime)
+                    status = "Zapisano w galerii."
+                } else {
+                    status = "Zapisywanie do galerii wymaga Androida 10 lub nowszego."
+                }
+                temp.delete()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                status = "Nie udało się zapisać wyniku: " + (e.localizedMessage ?: "błąd")
+            } finally {
+                busy = false
+            }
+        }
+    }
+
+    fun cancelCurrentJob() {
+        val current = job ?: return
+        if (current.status in setOf("COMPLETED", "FAILED", "CANCELLED", "UNKNOWN")) return
+        scope.launch {
+            busy = true
+            status = "Anulowanie zadania…"
+            try {
+                val result = api().cancelJob(authorization(), approvalToken.trim(), current.id)
+                if (result.cancelled) {
+                    job = current.copy(status = result.status, progress = 0.0, queue_position = null)
+                    status = "Zadanie anulowane."
+                } else {
+                    status = "Zadanie nie wymagało anulowania."
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                status = errorMessage(e)
+            } finally {
+                busy = false
+            }
+        }
+    }
+
     fun loadWorkflows() {
         if (server.isBlank() || apiKey.isBlank()) {
             status = "Podaj adres HTTPS backendu i klucz API."
