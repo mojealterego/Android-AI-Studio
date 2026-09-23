@@ -1,49 +1,68 @@
-# AI Studio backend (prototype)
+# AI Studio backend
 
-FastAPI adapter between the Android client and a private ComfyUI instance. The backend now provides a consent-gated v2 dispatch boundary and durable SQLite-backed job lifecycle storage. Human approval remains a separate authenticated concern.
+FastAPI adapter between the Android client and a private ComfyUI instance.
+
+## Security boundary
+
+The backend is fail-closed:
+
+- Normal API requests require Authorization: Bearer API_KEY.
+- Generation approval and dispatch additionally require X-Approval-Token.
+- The approval credential is separate from the service API key and is mapped server-side to an approver subject.
+- Clients and agents cannot choose subject_id or actor_id.
+- Workflow graphs are server-owned; arbitrary legacy graph dispatch is disabled with HTTP 410.
+- Consent is bound to the exact workflow ID and canonical parameters through a SHA-256 resource digest.
+- ONCE grants are consumed atomically immediately before the external ComfyUI side effect.
+- Revocation, expiry, task/session scope and wrong-resource/wrong-subject checks fail closed.
+- Lifecycle receipts are append-only and actor-scoped.
+- Transport ambiguity is recorded as UNKNOWN and the consumed grant is not replayed automatically.
+
+The local approval-token mapping is a deployment authenticator, not a full enterprise identity provider. It does not provide identity proofing, MFA, federation or non-repudiation. A production multi-user deployment should replace it with a stronger identity/transaction-authorization system.
 
 ## Run locally
 
-```bash
+```
 cd backend
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env
-# Edit COMFYUI_BASE_URL and set a long random API_KEY
+# Set COMFYUI_BASE_URL, API_KEY and a separate APPROVAL_TOKENS_JSON secret mapping.
 set -a; source .env; set +a
 uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
-OpenAPI docs: `http://localhost:8000/docs`.
+## API
 
-## API status
+- GET /api/v2/workflows — server-registered workflow definitions.
+- POST /api/v2/approval-preview — validates and returns the exact server-derived transaction preview.
+- POST /api/v2/approvals — creates a scoped consent grant after separate approval authentication.
+- POST /api/v2/jobs — revalidates consent and dispatches only the approved server-owned workflow.
+- POST /api/jobs — disabled legacy arbitrary-graph route; returns 410.
+- GET /api/jobs and GET /api/jobs/{id} — actor-scoped durable job lifecycle.
+- GET /api/jobs/{id}/result — actor-scoped completed result metadata.
+- GET /api/v2/receipts — actor-scoped append-only lifecycle receipts.
+- GET /api/health — liveness/health.
+- GET /api/ready — readiness; requires API key, ComfyUI and persistent stores.
 
-All protected endpoints require `Authorization: Bearer <API_KEY>`.
+## Persistent stores
 
-- `GET /api/v2/workflows` — lists server-registered workflow definitions.
-- `POST /api/v2/jobs` — dispatches only server-registered workflows after exact task/session-scoped consent; unknown workflows return `404` and missing/invalid consent returns `403`.
-- `POST /api/jobs` — legacy arbitrary-workflow dispatch is disabled and returns `410 LEGACY_DISPATCH_DISABLED`.
-- `GET /api/jobs` and `GET /api/jobs/{id}` — durable job-status routes backed by `JOB_DB_PATH` (default `./data/jobs.sqlite3`).
-- `GET /api/jobs/{id}/result` — result route; only available for a completed job.
-- `GET /api/health` — checks backend/ComfyUI health; it is not a readiness guarantee for generation.
+- Consent grants: CONSENT_DB_PATH, default ./data/consent.sqlite3.
+- Jobs: JOB_DB_PATH, default ./data/jobs.sqlite3.
+- Receipts: RECEIPT_DB_PATH, default ./data/receipts.sqlite3.
 
-## Consent and dispatch boundary
-
-The consent modules provide parameter-bound resource identifiers, grant validation/consumption, SQLite persistence, and append-only receipt storage. They do not, by themselves, authenticate a unique human principal or implement an approval UI/API. The shared `API_KEY` is a service credential, not per-user identity.
-
-Do not enable job dispatch by trusting a `subject_id`, grant ID, workflow graph, or approval claim supplied by an agent/client. Before dispatch can be enabled, the server needs a separately authenticated human approval flow, trusted principal attribution, server-side workflow allowlisting and validation, immutable parameter snapshotting, exact consent binding, atomic one-shot consumption immediately before the external side effect, and audit/error handling. Keep dispatch fail-closed until those pieces are integrated and tested.
+SQLite is appropriate for a single backend instance with persistent storage. Multi-replica deployment requires a shared transactional database and coordinated queueing.
 
 ## Production limitations
 
-- Job metadata survives backend restarts through SQLite. For multi-replica production deployment, move the store to a shared transactional database and add a dedicated queue.
-- Add user accounts and per-user ownership checks; the shared API key does not provide tenant isolation.
-- Add rate limits, request-size limits, retention/deletion controls, and operational monitoring.
-- Keep ComfyUI private; expose only the authenticated backend. Do not put API secrets in the Android APK.
-- Add an authenticated media proxy/object-storage layer before exposing generated files to clients.
-- Add cancellation, progress events, robust ComfyUI error parsing, and integration tests.
-- Only use models and workflows whose licenses permit the intended use; enforce adult-only and consent safeguards.
+- Replace the local approval token mapping with an external identity provider or strong transaction-authorization mechanism.
+- Add rate limits, request-size limits, retention/deletion controls and monitoring.
+- Keep ComfyUI private; never place API secrets in the Android APK.
+- Add an authenticated media proxy/object-storage layer before exposing generated files.
+- Add robust ComfyUI progress events and cancellation semantics.
+- Add full end-to-end integration tests against a controlled ComfyUI instance.
+- Enforce model/workflow licensing and adult/consent safeguards appropriate to deployed content.
 
 ## Tests
 
-Run the backend test suite from `backend/` using the repository's configured test dependencies. Confirm the dependency file and CI configuration before relying on a particular local test command. No test or ComfyUI integration result is implied by this documentation update.
+CI runs the backend pytest suite from the repository root. The consent test matrix covers exact resource binding, wrong actor/resource, expiry/revocation, one-time consumption, tampering, ambiguous external outcomes, approval-token authentication and append-only receipt transitions.
