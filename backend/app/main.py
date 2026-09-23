@@ -35,6 +35,7 @@ app.add_middleware(CORSMiddleware, allow_origins=origins or [], allow_credential
                    allow_methods=["GET", "POST"], allow_headers=["Authorization", "Content-Type"])
 
 # Compatibility cache for callers/tests; JOB_STORE is the durable source of truth.
+JOB_STORE.recover_inflight(INSTANCE_OWNER_ID)
 jobs: dict[str, dict[str, Any]] = {job["id"]: job for job in JOB_STORE.list_owned(INSTANCE_OWNER_ID, MAX_TRACKED_JOBS)}
 
 class CreateJob(BaseModel):
@@ -100,6 +101,22 @@ def owned_job(job_id: str, principal_id: str) -> dict[str, Any]:
     if job is None or not hmac.compare_digest(str(job.get("owner_id", "")), principal_id):
         raise HTTPException(status_code=404, detail="Job not found")
     return job
+
+@app.get("/api/ready")
+async def readiness():
+    """Return 200 only when required local configuration and ComfyUI are usable."""
+    if not API_KEY:
+        raise HTTPException(status_code=503, detail="Backend API_KEY is not configured")
+    try:
+        await comfy_request("GET", "/system_stats")
+    except HTTPException as exc:
+        raise HTTPException(status_code=503, detail="ComfyUI is not ready") from exc
+    try:
+        JOB_STORE.count()
+        CONSENT_STORE.get("__readiness_probe__")
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Persistent stores are not ready") from exc
+    return {"status": "ready"}
 
 @app.get("/api/health")
 async def health():
@@ -174,7 +191,12 @@ async def get_job(job_id: str, principal_id: str = Depends(authorize)):
         JOB_STORE.update(job_id, status="COMPLETED", progress=1.0, outputs=files)
     elif status.get("status_str") == "error":
         job["status"] = "FAILED"
-        JOB_STORE.update(job_id, status="FAILED")
+        JOB_STORE.update(
+            job_id,
+            status="FAILED",
+            error_code="COMFYUI_JOB_FAILED",
+            error_detail="ComfyUI reported a job failure",
+        )
     else:
         JOB_STORE.update(job_id, status=job.get("status", "QUEUED"), progress=float(job.get("progress", 0.0)))
     return JOB_STORE.get(job_id) or job
