@@ -59,9 +59,22 @@ jobs:
         run: |
           set -euo pipefail
 
-          KEYSTORE_TYPE="$(keytool -list -v \
-            -keystore "$ANDROID_KEYSTORE_PATH" \
-            -storepass "$ANDROID_KEYSTORE_PASSWORD" 2>/dev/null |
+          # Validate the actual decoded keystore before Gradle. If the two
+          # repository secrets were accidentally swapped, recover safely
+          # without exposing either secret.
+          if keytool -list               -keystore "$ANDROID_KEYSTORE_PATH"               -storepass "$ANDROID_KEYSTORE_PASSWORD"               -alias "$ANDROID_KEY_ALIAS" >/dev/null 2>&1; then
+            EFFECTIVE_STORE_PASSWORD="$ANDROID_KEYSTORE_PASSWORD"
+            echo "Release keystore opened with ANDROID_KEYSTORE_PASSWORD."
+          elif keytool -list               -keystore "$ANDROID_KEYSTORE_PATH"               -storepass "$ANDROID_KEY_PASSWORD"               -alias "$ANDROID_KEY_ALIAS" >/dev/null 2>&1; then
+            EFFECTIVE_STORE_PASSWORD="$ANDROID_KEY_PASSWORD"
+            echo "Release keystore opened with ANDROID_KEY_PASSWORD; secrets appear swapped, using the matching value."
+          else
+            echo "Release keystore could not be opened with either configured password."
+            echo "The Base64 keystore and repository passwords do not belong to the same keystore."
+            exit 1
+          fi
+
+          KEYSTORE_TYPE="$(keytool -list -v             -keystore "$ANDROID_KEYSTORE_PATH"             -storepass "$EFFECTIVE_STORE_PASSWORD" 2>/dev/null |
             awk -F': ' '/^Keystore type:/{print $2; exit}')"
 
           test -n "$KEYSTORE_TYPE" || {
@@ -71,21 +84,15 @@ jobs:
 
           echo "Release keystore type: $KEYSTORE_TYPE"
 
-          keytool -list \
-            -keystore "$ANDROID_KEYSTORE_PATH" \
-            -storepass "$ANDROID_KEYSTORE_PASSWORD" \
-            -alias "$ANDROID_KEY_ALIAS" >/dev/null
-
           if [ "${KEYSTORE_TYPE^^}" = "PKCS12" ]; then
-            EFFECTIVE_KEY_PASSWORD="$ANDROID_KEYSTORE_PASSWORD"
-            echo "Using keystore password as the PKCS12 entry password."
+            EFFECTIVE_KEY_PASSWORD="$EFFECTIVE_STORE_PASSWORD"
+            echo "Using the validated store password for PKCS12 signing."
           else
             EFFECTIVE_KEY_PASSWORD="$ANDROID_KEY_PASSWORD"
-            echo "Using configured entry password for non-PKCS12 signing."
+            echo "Using the configured entry password for non-PKCS12 signing."
           fi
 
-          ANDROID_KEY_PASSWORD="$EFFECTIVE_KEY_PASSWORD" \
-            gradle :app:assembleRelease :app:bundleRelease
+          ANDROID_KEYSTORE_PASSWORD="$EFFECTIVE_STORE_PASSWORD"           ANDROID_KEY_PASSWORD="$EFFECTIVE_KEY_PASSWORD"             gradle :app:assembleRelease :app:bundleRelease
 
       - name: Verify release signatures
         run: |
