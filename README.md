@@ -4,7 +4,7 @@ Native Android client for a self-hosted image/video generation backend (FastAPI 
 
 ## Status
 
-Phase D complete for the current single-instance architecture. The Android client implements the approval-aware v2 generation flow, the backend provides server-owned workflow dispatch, durable job tracking and lifecycle receipts, and GitHub CI verifies both the backend tests and the Android debug build.
+Phase G complete for the current single-instance architecture. The Android client implements the approval-aware v2 generation flow, the backend provides server-owned workflow dispatch, durable job tracking and lifecycle receipts, and GitHub CI verifies both the backend tests and the Android debug build.
 
 ## Architecture
 
@@ -28,3 +28,8 @@ Only use lawful content involving consenting adults and models/workflows whose l
 ## Phase F status
 
 Production job/media lifecycle is implemented: authenticated job cancellation, queue-aware status reconciliation, sampled Android image preview, MediaStore export for Android 10+, and private cache cleanup. ComfyUI remains private behind the backend proxy.
+
+
+## Phase G status
+
+Real-time generation progress is proxied through an authenticated backend WebSocket. Android receives ComfyUI execution/progress events without direct ComfyUI access and retains authenticated polling as a fallback.
