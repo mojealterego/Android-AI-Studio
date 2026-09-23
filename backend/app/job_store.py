@@ -27,6 +27,10 @@ class JobStore:
 
     def _initialize(self) -> None:
         with self._connect() as db:
+            db.execute("""CREATE TABLE IF NOT EXISTS schema_meta (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )""")
             db.execute("""CREATE TABLE IF NOT EXISTS jobs (
                 id TEXT PRIMARY KEY,
                 prompt_id TEXT NOT NULL,
@@ -46,6 +50,9 @@ class JobStore:
             )""")
             db.execute("CREATE INDEX IF NOT EXISTS idx_jobs_owner_updated ON jobs(owner_id, updated_at DESC)")
             db.execute("CREATE INDEX IF NOT EXISTS idx_jobs_prompt ON jobs(prompt_id)")
+            db.execute(
+                "INSERT OR IGNORE INTO schema_meta(key, value) VALUES ('jobs_schema_version', '1')"
+            )
 
     @staticmethod
     def _decode(row: sqlite3.Row) -> dict[str, Any]:
@@ -115,6 +122,22 @@ class JobStore:
             if cur.rowcount != 1:
                 raise KeyError(job_id)
         return self.get(job_id)  # type: ignore[return-value]
+
+    def recover_inflight(self, owner_id: str) -> int:
+        """Mark jobs that were still running at process restart as UNKNOWN.
+
+        The external ComfyUI state is authoritative; UNKNOWN prevents the
+        API from falsely reporting QUEUED/RUNNING after a backend restart.
+        """
+        with self._connect() as db:
+            cur = db.execute(
+                """UPDATE jobs SET status='UNKNOWN', error_code='BACKEND_RESTART',
+                   error_detail='Backend restarted while job was in flight',
+                   updated_at=CURRENT_TIMESTAMP
+                   WHERE owner_id=? AND status IN ('QUEUED','RUNNING')""",
+                (owner_id,),
+            )
+            return cur.rowcount
 
     def clear(self) -> None:
         with self._connect() as db:
