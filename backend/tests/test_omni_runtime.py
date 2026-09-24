@@ -5,7 +5,7 @@ import app.omni_runtime as runtime
 
 
 def test_runtime_load_all_requires_three_slots(monkeypatch):
-    monkeypatch.setattr(runtime, "API_KEY", "test-key")
+    monkeypatch.setattr("app.omni_runtime.API_KEY", "test-key")
     client = TestClient(app)
     payload = {
         "slots": [
@@ -22,7 +22,8 @@ def test_runtime_load_all_requires_three_slots(monkeypatch):
 
 
 def test_runtime_load_all_registers_all_three_slots(monkeypatch):
-    monkeypatch.setattr(runtime, "API_KEY", "test-key")
+    monkeypatch.setattr("app.omni_runtime.API_KEY", "test-key")
+    monkeypatch.setattr(runtime, "_validate_model_path", lambda request: None)
 
     async def fake_start_slot(slot, request):
         state = runtime._SLOT_STATE[slot.id]
