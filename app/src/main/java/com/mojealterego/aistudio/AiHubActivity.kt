@@ -44,7 +44,10 @@ private data class HubModule(val group:String,val code:String,val title:String,v
 private val modules = listOf(
  HubModule("CREATE","IMG","IMAGE LAB","SD · Flux · Qwen · LoRA · ControlNet · inpaint","LOCAL / GPU"),
  HubModule("CREATE","VID","VIDEO LAB","Wan · LTX · Hunyuan · I2V · keyframes","GPU WORKER"),
- HubModule("CREATE","AUD","AUDIO LAB","Bark · TTS · voice · sound design","LOCAL / GPU"),
+ HubModule("CREATE","AUD","AUDIO LAB","Bark · AudioGen · sound design","LOCAL / GPU"),
+ HubModule("CREATE","VOI","VOICE LAB","STT · TTS · dubbing · voice continuity","LOCAL / GPU"),
+ HubModule("CREATE","MUS","MUSIC LAB","OpenMusic · MusicGen · MIDI Transformer","GPU WORKER"),
+ HubModule("CREATE","PLG","PLUGIN HUB","MCP · apps · integrations · OAuth","GATEWAY"),
  HubModule("CREATE","MUS","MUSIC LAB","OpenMusic · MusicGen · MIDI Transformer","GPU WORKER"),
  HubModule("CREATE","AVA","AVATAR LAB","Duix · HunyuanPortrait · lip-sync","GPU WORKER"),
  HubModule("CREATE","NOV","STORY LAB","novel · screenplay · characters · continuity","AGENT"),
@@ -72,11 +75,13 @@ private fun AiHubTheme(content:@Composable ()->Unit) {
 private fun AiHubScreen(onOpenStudio:()->Unit) {
  var filter by remember { mutableStateOf("ALL") }
  var screen by remember { mutableStateOf("HUB") }
+ var activeModule by remember { mutableStateOf<String?>(null) }
  var importedModels by remember { mutableStateOf(0) }
  val picker=rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()){ uris-> importedModels+=uris.size }
  val visible=modules.filter{filter=="ALL"||it.group==filter}
  if (screen == "MODELS") { ModelRuntimeScreen { screen = "HUB" }; return }
  if (screen == "PUBLISH") { SocialPublishScreen { screen = "HUB" }; return }
+ activeModule?.let { code -> OmniModuleScreen(code = code, onBack = { activeModule = null }) ; return }
  Column(Modifier.fillMaxSize().background(HubBg).padding(16.dp)) {
   Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){
    Column(Modifier.weight(1f)){
@@ -105,7 +110,7 @@ private fun AiHubScreen(onOpenStudio:()->Unit) {
   Spacer(Modifier.height(8.dp))
   Text("MODEL VAULT  ·  $importedModels NOWYCH PLIKÓW  ·  GGUF / SAFE-TENSORS / LORA / VAE",color=HubMuted,fontSize=10.sp,letterSpacing=1.1.sp)
   Spacer(Modifier.height(8.dp))
-  LazyVerticalGrid(columns=GridCells.Fixed(2),modifier=Modifier.fillMaxSize(),verticalArrangement=Arrangement.spacedBy(9.dp),horizontalArrangement=Arrangement.spacedBy(9.dp),contentPadding=PaddingValues(bottom=18.dp)){items(visible){module -> ModuleCard(module) { if (module.code == "LLM") screen = "MODELS"; if (module.code == "COM") screen = "PUBLISH" }}}
+  LazyVerticalGrid(columns=GridCells.Fixed(2),modifier=Modifier.fillMaxSize(),verticalArrangement=Arrangement.spacedBy(9.dp),horizontalArrangement=Arrangement.spacedBy(9.dp),contentPadding=PaddingValues(bottom=18.dp)){items(visible){module -> ModuleCard(module) { when (module.code) { "LLM" -> screen = "MODELS"; "COM" -> screen = "PUBLISH"; else -> activeModule = module.code } }}}
  }
 }
 
