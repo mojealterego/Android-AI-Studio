@@ -27,8 +27,7 @@ fun ModelRuntimeScreen(onBack: () -> Unit) {
     var slots by remember {
         mutableStateOf(
             listOf(
-                LoadedModel(ModelSlot.CHAT, "chat-model.gguf", "/models/chat/chat-model.gguf"),
-                LoadedModel(ModelSlot.CODE, "code-model.gguf", "/models/code/code-model.gguf"),
+                LoadedModel(ModelSlot.CHAT_CODE, "chat-code-model.gguf", "/models/chat-code/chat-code-model.gguf"),
                 LoadedModel(ModelSlot.IMAGE, "image-model.gguf", "/models/image/image-model.gguf"),
                 LoadedModel(ModelSlot.VIDEO, "video-model.gguf", "/models/video/video-model.gguf")
             )
@@ -37,7 +36,7 @@ fun ModelRuntimeScreen(onBack: () -> Unit) {
     Column(Modifier.fillMaxSize().background(OmniBg).padding(16.dp)) {
         TextButton(onClick = onBack) { Text("← WRÓĆ", color = OmniGold) }
         Text("MODEL RUNTIME", color = OmniGold, style = MaterialTheme.typography.headlineSmall)
-        Text("Cztery niezależne sloty. CHAT + CODE mogą wskazywać ten sam plik GGUF; IMAGE i VIDEO mają osobne runtime'y generacyjne.", color = OmniText)
+        Text("Dokładnie trzy rezydentne sloty GGUF: 1) CHAT + CODE, 2) IMAGE, 3) VIDEO. Każdy slot może pozostać załadowany równocześnie.", color = OmniText)
         Spacer(Modifier.height(12.dp))
         LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             items(slots) { model ->
