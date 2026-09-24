@@ -35,6 +35,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -219,9 +220,23 @@ private fun StudioScreen() {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val modelPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
-        val names = uris.mapNotNull { uri -> queryDisplayName(context, uri) ?: uri.lastPathSegment }
-        modelFiles = (modelFiles + names).distinct()
-        status = "Dodano " + names.size + " plików modeli. Katalog: GGUF / WAN / checkpoints."
+        scope.launch {
+            val modelDir = File(context.filesDir, "models").apply { mkdirs() }
+            val names = withContext(Dispatchers.IO) {
+                uris.mapNotNull { uri ->
+                    val name = queryDisplayName(context, uri) ?: uri.lastPathSegment ?: return@mapNotNull null
+                    val safe = name.replace(Regex("[^A-Za-z0-9._-]"), "_")
+                    runCatching {
+                        context.contentResolver.openInputStream(uri)?.use { input ->
+                            File(modelDir, safe).outputStream().use { output -> input.copyTo(output) }
+                        } ?: return@mapNotNull null
+                        safe
+                    }.getOrNull()
+                }
+            }
+            modelFiles = (modelFiles + names).distinct()
+            status = "Dodano " + names.size + " modeli do prywatnego katalogu /models."
+        }
     }
     val selected = workflows.firstOrNull { it.id == selectedId }
 
@@ -587,382 +602,340 @@ private fun StudioScreen() {
             CenterAlignedTopAppBar(
                 title = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(painterResource(com.mojealterego.aistudio.R.drawable.ic_ai_studio_logo), contentDescription = "AI Studio", tint = Color.Unspecified, modifier = Modifier.size(34.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Text("AI STUDIO", fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold, color = Ivory)
+                        Image(
+                            painterResource(com.mojealterego.aistudio.R.drawable.ic_ai_studio_logo),
+                            "Moje Alterego AI Studio",
+                            Modifier.size(40.dp)
+                        )
+                        Spacer(Modifier.width(10.dp))
+                        Column {
+                            Text("MOJE ALTEREGO", color = Gold24, fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
+                            Text("AI STUDIO", color = Ivory, fontFamily = FontFamily.Serif, letterSpacing = 1.5.sp, style = MaterialTheme.typography.labelSmall)
+                        }
                     }
                 },
                 colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Obsidian)
             )
         }
     ) { insets ->
-        Column(
-            modifier = Modifier
-                .padding(insets)
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
-            Text("PRIVATE GENERATION WORKSPACE", style = MaterialTheme.typography.labelMedium, color = Gold24, fontFamily = FontFamily.Serif)
-            Text("OBSIDIAN / 24K GOLD", style = MaterialTheme.typography.labelSmall, color = GoldLight, fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold)
-
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                StudioModeCard("IMAGE", "GENERATE IMAGE", "SDXL · FLUX · GGUF", mode == "IMAGE", {
-                    mode = "IMAGE"
-                    val next = workflows.firstOrNull { it.type.equals(mode, true) }
-                    if (next != null) {
-                        selectedId = next.id
-                        parameterValues = next.parameters.mapValues { (_, p) -> p.default?.toString().orEmpty() }
-                    }
-                    resetApproval()
-                }, Modifier.weight(1f))
-                StudioModeCard("VIDEO", "GENERATE VIDEO", "WAN · VIDEO MODELS", mode == "VIDEO", {
-                    mode = "VIDEO"
-                    val next = workflows.firstOrNull { it.type.equals(mode, true) }
-                    if (next != null) {
-                        selectedId = next.id
-                        parameterValues = next.parameters.mapValues { (_, p) -> p.default?.toString().orEmpty() }
-                    }
-                    resetApproval()
-                }, Modifier.weight(1f))
-            }
-
-            DarkCard {
-                Text("MODEL VAULT", color = Gold24, fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold)
-                Text("Miejsce na GGUF, WAN, safetensors, checkpoints i modele video.", color = Ivory)
-                Text("GGUF: " + modelFiles.count { it.lowercase().endsWith(".gguf") } + "  ·  WAN: " + modelFiles.count { it.lowercase().contains("wan") } + "  ·  Wszystkie: " + modelFiles.size, color = MutedGold)
-                Button(
-                    onClick = { modelPicker.launch(arrayOf("application/octet-stream", "application/*")) },
-                    colors = ButtonDefaults.buttonColors(containerColor = Gold24, contentColor = Obsidian),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text("DODAJ PLIKI MODELI", fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold)
-                }
-                modelFiles.takeLast(4).forEach { Text("• " + it, color = Color(0xFFC9C2B1), style = MaterialTheme.typography.bodySmall) }
-            }
-
-            SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-                listOf("IMAGE" to "Obraz", "VIDEO" to "Wideo").forEachIndexed { index, pair ->
-                    SegmentedButton(
-                        selected = mode == pair.first,
-                        onClick = {
-                            mode = pair.first
-                            val next = workflows.firstOrNull { it.type.equals(mode, true) }
-                            if (next != null) {
-                                selectedId = next.id
-                                parameterValues = next.parameters.mapValues { (_, p) -> p.default?.toString().orEmpty() }
-                                resetApproval()
-                            }
-                        },
-                        shape = SegmentedButtonDefaults.itemShape(index, 2)
-                    ) { Text(pair.second) }
-                }
-            }
-
-            OutlinedTextField(
-                value = prompt,
-                onValueChange = { prompt = it; resetApproval() },
-                label = { Text("Prompt") },
-                placeholder = { Text("Opisz scenę, styl i oświetlenie…") },
-                modifier = Modifier.fillMaxWidth(),
-                minLines = 3
-            )
-            OutlinedTextField(
-                value = negative,
-                onValueChange = { negative = it; resetApproval() },
-                label = { Text("Prompt negatywny (opcjonalnie)") },
-                modifier = Modifier.fillMaxWidth(),
-                minLines = 2
-            )
-            OutlinedTextField(
-                value = server,
-                onValueChange = { server = it; resetApproval() },
-                label = { Text("Adres backendu HTTPS") },
-                placeholder = { Text("https://twoj-serwer.example") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true
-            )
-            OutlinedTextField(
-                value = apiKey,
-                onValueChange = { apiKey = it; resetApproval() },
-                label = { Text("Klucz API") },
-                visualTransformation = PasswordVisualTransformation(),
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true
-            )
-            OutlinedTextField(
-                value = approvalToken,
-                onValueChange = { approvalToken = it; resetApproval() },
-                label = { Text("Osobny token zatwierdzania") },
-                visualTransformation = PasswordVisualTransformation(),
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                supportingText = { Text("Nie jest tym samym sekretem co klucz API i nie jest zapisywany.") }
-            )
-
-            OutlinedButton(
-                onClick = { loadWorkflows() },
-                enabled = !busy,
-                modifier = Modifier.fillMaxWidth()
+        Box(Modifier.fillMaxSize().background(Obsidian).padding(insets)) {
+            Column(
+                Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(18.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-                Text(if (busy) "Przetwarzanie…" else "Pobierz workflow")
-            }
+                Text("PRIVATE GENERATION WORKSPACE", color = Gold24, fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold, letterSpacing = 1.4.sp)
+                Text("OBSIDIAN · 24K GOLD · PRIVATE GPU", color = MutedGold, fontFamily = FontFamily.Serif, style = MaterialTheme.typography.labelSmall)
 
-            if (workflows.isNotEmpty()) {
-                Text("WORKFLOW", color = Gold24, style = MaterialTheme.typography.titleMedium)
-                workflows.filter { it.type.equals(mode, true) }.forEach { workflow ->
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        RadioButton(selected = selectedId == workflow.id, onClick = {
-                            selectedId = workflow.id
-                            parameterValues = workflow.parameters.mapValues { (_, p) -> p.default?.toString().orEmpty() }
-                            job = null
-                            resetApproval()
-                        })
-                        Column(Modifier.weight(1f)) {
-                            Text(workflow.label, style = MaterialTheme.typography.bodyLarge)
-                            Text("${workflow.id} · v${workflow.version}", style = MaterialTheme.typography.bodySmall)
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    StudioModeCard("IMAGE", "OBRAZ", "FLUX · QWEN · SDXL", mode == "IMAGE", {
+                        mode = "IMAGE"
+                        workflows.firstOrNull { it.type.equals(mode, true) }?.let { next ->
+                            selectedId = next.id
+                            parameterValues = next.parameters.mapValues { (_, p) -> p.default?.toString().orEmpty() }
                         }
-                    }
+                        resetApproval()
+                    }, Modifier.weight(1f))
+                    StudioModeCard("VIDEO", "WIDEO", "WAN 2.1 · WAN 2.2", mode == "VIDEO", {
+                        mode = "VIDEO"
+                        workflows.firstOrNull { it.type.equals(mode, true) }?.let { next ->
+                            selectedId = next.id
+                            parameterValues = next.parameters.mapValues { (_, p) -> p.default?.toString().orEmpty() }
+                        }
+                        resetApproval()
+                    }, Modifier.weight(1f))
                 }
-            }
 
-            selected?.let { workflow ->
-                Text("PARAMETRY WORKFLOW", color = Gold24, style = MaterialTheme.typography.titleMedium)
-                workflow.parameters.forEach { (name, spec) ->
-                    val isPrompt = name.equals("prompt", true) || name.equals("positive_prompt", true)
-                    val isNegative = name.equals("negative_prompt", true) || name.equals("negative", true)
-                    if (!isPrompt && !isNegative) {
-                        if (!spec.choices.isNullOrEmpty()) {
-                            var expanded by remember(name, workflow.id) { mutableStateOf(false) }
-                            val current = parameterValues[name].orEmpty().ifBlank { spec.default?.toString().orEmpty() }
-                            ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = !expanded }) {
-                                OutlinedTextField(
-                                    value = current,
-                                    onValueChange = {},
-                                    readOnly = true,
-                                    label = { Text(if (spec.required) "${name} *" else name) },
-                                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
-                                    modifier = Modifier.menuAnchor().fillMaxWidth()
-                                )
-                                ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-                                    spec.choices.forEach { choice ->
-                                        DropdownMenuItem(text = { Text(choice) }, onClick = {
-                                            parameterValues = parameterValues + (name to choice)
-                                            expanded = false
-                                            resetApproval()
-                                        })
-                                    }
-                                }
-                            }
-                        } else if (spec.type.equals("boolean", true) || spec.type.equals("bool", true)) {
-                            val checked = parameterValues[name]?.toBooleanStrictOrNull()
-                                ?: (spec.default as? Boolean ?: false)
-                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text(if (spec.required) "${name} *" else name)
-                                Switch(checked = checked, onCheckedChange = {
-                                    parameterValues = parameterValues + (name to it.toString())
-                                    resetApproval()
-                                })
-                            }
-                        } else {
-                            OutlinedTextField(
-                                value = parameterValues[name] ?: spec.default?.toString().orEmpty(),
-                                onValueChange = {
-                                    parameterValues = parameterValues + (name to it)
-                                    resetApproval()
-                                },
-                                label = { Text(if (spec.required) "${name} *" else name) },
-                                supportingText = {
-                                    Text(
-                                        listOfNotNull(
-                                            spec.minimum?.let { "min ${it}" },
-                                            spec.maximum?.let { "max ${it}" },
-                                            spec.max_length?.let { "max ${it} znaków" }
-                                        ).joinToString(" · ")
-                                    )
-                                },
-                                modifier = Modifier.fillMaxWidth(),
-                                singleLine = true
+                DarkCard {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                        Column(Modifier.weight(1f)) {
+                            Text("MODEL VAULT", color = Gold24, fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold, letterSpacing = 1.3.sp, style = MaterialTheme.typography.titleMedium)
+                            Text("GGUF · WAN 2.1 · WAN 2.2 · SAFETENSORS · LORA · VAE", color = Color(0xFFBEB5A2), fontFamily = FontFamily.Serif, style = MaterialTheme.typography.labelSmall)
+                        }
+                        Text(modelFiles.size.toString().padStart(2, '0'), color = Gold24, fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.headlineSmall)
+                    }
+
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                        ModelTypeBadge("GGUF", modelFiles.count { it.lowercase().endsWith(".gguf") }, Modifier.weight(1f))
+                        ModelTypeBadge("WAN", modelFiles.count { it.lowercase().contains("wan") }, Modifier.weight(1f))
+                        ModelTypeBadge("ALL", modelFiles.size, Modifier.weight(1f))
+                    }
+
+                    Surface(
+                        Modifier.fillMaxWidth(),
+                        color = Color(0xFF0B0A08),
+                        shape = RoundedCornerShape(12.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF4B3A18))
+                    ) {
+                        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                            Text(
+                                if (modelFiles.isEmpty()) "KATALOG GGUF / WAN JEST PUSTY" else "MODELE W KATALOGU",
+                                color = Ivory,
+                                fontFamily = FontFamily.Serif,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                if (modelFiles.isEmpty())
+                                    "Wybierz pliki GGUF, WAN, safetensors, LoRA lub VAE. Zostaną skopiowane do prywatnego katalogu aplikacji."
+                                else
+                                    modelFiles.takeLast(5).joinToString("  ·  "),
+                                color = Color(0xFFAAA18F),
+                                fontFamily = FontFamily.Serif,
+                                style = MaterialTheme.typography.bodySmall,
+                                maxLines = 3
                             )
                         }
                     }
-                }
-            }
 
-            if (preview == null) {
-                Button(
-                    onClick = { preparePreview() },
-                    enabled = !busy && selected != null,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text("1. Przygotuj podgląd i zakres zgody")
-                }
-            } else {
-                Card(Modifier.fillMaxWidth()) {
-                    Column(
-                        Modifier.padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    Button(
+                        onClick = { modelPicker.launch(arrayOf("application/octet-stream", "application/*", "model/*")) },
+                        enabled = !busy,
+                        colors = ButtonDefaults.buttonColors(containerColor = Gold24, contentColor = Obsidian),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text("PODGLĄD OPERACJI", style = MaterialTheme.typography.titleMedium)
-                        Text("Workflow: ${preview!!.workflow_id} · v${preview!!.workflow_version}")
-                        Text("Typ: ${preview!!.media_type}")
-                        Text("Działanie: ${preview!!.action}")
-                        Text("Zakres: ${preview!!.resource}")
-                        Text("Skutek: ${preview!!.consequence}")
-                        Text("Zadanie: ${preview!!.task_id}")
-                        Text("Uprawnienie: jednorazowe, ważne do 5 minut")
-                        Text("Digest: ${preview!!.preview_digest}", style = MaterialTheme.typography.bodySmall)
-                        HorizontalDivider()
-                        Text(
-                            "Sprawdź parametry powyżej. Zatwierdzenie uruchomi rzeczywiste zadanie na backendzie.",
-                            style = MaterialTheme.typography.bodySmall
-                        )
+                        Text("＋  DODAJ PLIK GGUF / MODEL", fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold, letterSpacing = .7.sp)
+                    }
+                }
+
+                DarkCard {
+                    Text("GENERATOR", color = Gold24, fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold, letterSpacing = 1.3.sp, style = MaterialTheme.typography.titleMedium)
+                    OutlinedTextField(
+                        value = prompt,
+                        onValueChange = { prompt = it; resetApproval() },
+                        label = { Text("Prompt") },
+                        placeholder = { Text("Opisz obraz lub film…") },
+                        modifier = Modifier.fillMaxWidth(),
+                        minLines = 4
+                    )
+                    OutlinedTextField(
+                        value = negative,
+                        onValueChange = { negative = it; resetApproval() },
+                        label = { Text("Prompt negatywny") },
+                        placeholder = { Text("Opcjonalnie") },
+                        modifier = Modifier.fillMaxWidth(),
+                        minLines = 2
+                    )
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(
+                            onClick = { preparePreview() },
+                            enabled = !busy && selected != null,
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.weight(1f)
+                        ) { Text("PRZYGOTUJ", fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold) }
+                        Button(
+                            onClick = { approveAndGenerate() },
+                            enabled = !busy && preview != null && approvalToken.isNotBlank(),
+                            colors = ButtonDefaults.buttonColors(containerColor = Gold24, contentColor = Obsidian),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.weight(1f)
+                        ) { Text("GENERUJ", fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold) }
+                    }
+                }
+
+                DarkCard {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("WORKFLOW", color = Gold24, fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold, letterSpacing = 1.3.sp)
+                        OutlinedButton(onClick = { loadWorkflows() }, enabled = !busy, shape = RoundedCornerShape(9.dp)) {
+                            Text(if (busy) "…" else "POBIERZ", fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                    workflows.filter { it.type.equals(mode, true) }.forEach { workflow ->
+                        Surface(
+                            Modifier.fillMaxWidth().clickable {
+                                selectedId = workflow.id
+                                parameterValues = workflow.parameters.mapValues { (_, p) -> p.default?.toString().orEmpty() }
+                                resetApproval()
+                            },
+                            color = if (selectedId == workflow.id) Color(0xFF19150D) else Color(0xFF0B0A08),
+                            shape = RoundedCornerShape(10.dp),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, if (selectedId == workflow.id) Gold24 else Color(0xFF332A18))
+                        ) {
+                            Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Text(if (selectedId == workflow.id) "✓" else "○", color = Gold24, fontWeight = FontWeight.Bold)
+                                Spacer(Modifier.width(9.dp))
+                                Column {
+                                    Text(workflow.label, color = Ivory, fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold)
+                                    Text("${workflow.id} · v${workflow.version}", color = MutedGold, style = MaterialTheme.typography.bodySmall)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (selected != null) {
+                    DarkCard {
+                        Text("PARAMETRY", color = Gold24, fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold, letterSpacing = 1.3.sp)
+                        selected.parameters.forEach { (name, spec) ->
+                            val isPrompt = name.equals("prompt", true) || name.equals("positive_prompt", true)
+                            val isNegative = name.equals("negative_prompt", true) || name.equals("negative", true)
+                            if (!isPrompt && !isNegative) {
+                                if (!spec.choices.isNullOrEmpty()) {
+                                    var expanded by remember(name, selected.id) { mutableStateOf(false) }
+                                    val current = parameterValues[name].orEmpty().ifBlank { spec.default?.toString().orEmpty() }
+                                    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = !expanded }) {
+                                        OutlinedTextField(
+                                            value = current,
+                                            onValueChange = {},
+                                            readOnly = true,
+                                            label = { Text(if (spec.required) "${name} *" else name) },
+                                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
+                                            modifier = Modifier.menuAnchor().fillMaxWidth()
+                                        )
+                                        ExposedDropdownMenu(expanded, { expanded = false }) {
+                                            spec.choices.forEach { choice ->
+                                                DropdownMenuItem(text = { Text(choice) }, onClick = {
+                                                    parameterValues = parameterValues + (name to choice)
+                                                    expanded = false
+                                                    resetApproval()
+                                                })
+                                            }
+                                        }
+                                    }
+                                } else if (spec.type.equals("boolean", true) || spec.type.equals("bool", true)) {
+                                    val checked = parameterValues[name]?.toBooleanStrictOrNull() ?: (spec.default as? Boolean ?: false)
+                                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                        Text(if (spec.required) "${name} *" else name, color = Ivory, fontFamily = FontFamily.Serif)
+                                        Switch(checked = checked, onCheckedChange = { parameterValues = parameterValues + (name to it.toString()); resetApproval() })
+                                    }
+                                } else {
+                                    OutlinedTextField(
+                                        value = parameterValues[name] ?: spec.default?.toString().orEmpty(),
+                                        onValueChange = { parameterValues = parameterValues + (name to it); resetApproval() },
+                                        label = { Text(if (spec.required) "${name} *" else name) },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        singleLine = true
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                DarkCard {
+                    Text("POŁĄCZENIE", color = Gold24, fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold, letterSpacing = 1.3.sp)
+                    OutlinedTextField(value = server, onValueChange = { server = it; resetApproval() }, label = { Text("Backend HTTPS") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                    OutlinedTextField(value = apiKey, onValueChange = { apiKey = it; resetApproval() }, label = { Text("Klucz API") }, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth(), singleLine = true)
+                    OutlinedTextField(value = approvalToken, onValueChange = { approvalToken = it; resetApproval() }, label = { Text("Token zatwierdzania") }, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth(), singleLine = true)
+                    Text("Sekrety nie są zapisywane w APK.", color = MutedGold, fontFamily = FontFamily.Serif, style = MaterialTheme.typography.bodySmall)
+                }
+
+                if (preview != null) {
+                    DarkCard {
+                        Text("PODGLĄD OPERACJI", color = Gold24, fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold)
+                        Text("Workflow: ${preview!!.workflow_id} · v${preview!!.workflow_version}", color = Ivory)
+                        Text("Typ: ${preview!!.media_type}", color = Ivory)
+                        Text("Skutek: ${preview!!.consequence}", color = Color(0xFFBEB5A2))
                         Button(
                             onClick = { approveAndGenerate() },
                             enabled = !busy && approvalToken.isNotBlank(),
+                            colors = ButtonDefaults.buttonColors(containerColor = Gold24, contentColor = Obsidian),
+                            shape = RoundedCornerShape(10.dp),
                             modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text("2. ZATWIERDŹ I URUCHOM GENEROWANIE")
-                        }
-                        OutlinedButton(
-                            onClick = { resetApproval(); status = "Podgląd unieważniony." },
-                            enabled = !busy,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text("Anuluj podgląd")
-                        }
+                        ) { Text("ZATWIERDŹ I URUCHOM", fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold) }
                     }
                 }
-            }
 
-            Card(Modifier.fillMaxWidth()) {
-                Column(
-                    Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
+                DarkCard {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("STATUS", style = MaterialTheme.typography.labelMedium)
-                        job?.let { Text(it.status, style = MaterialTheme.typography.labelMedium) }
+                        Text("STATUS", color = Gold24, fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold)
+                        job?.let { Text(it.status, color = GoldSoft, fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold) }
                     }
-                    Text(status, style = MaterialTheme.typography.bodyMedium)
+                    Text(status, color = Ivory, fontFamily = FontFamily.Serif)
                     job?.takeIf { it.status == "RUNNING" }?.let { current ->
                         LinearProgressIndicator(
                             progress = { current.progress.toFloat().coerceIn(0f, 1f) },
-                            modifier = Modifier.fillMaxWidth()
+                            Modifier.fillMaxWidth(),
+                            color = Gold24,
+                            trackColor = Color(0xFF2A2418)
                         )
-                        Text(
-                            "${"%.1f".format(current.progress * 100)}% · generowanie w toku",
-                            style = MaterialTheme.typography.bodySmall
-                        )
+                        Text("${"%.1f".format(current.progress * 100)}% · GENEROWANIE W TOKU", color = GoldSoft, fontFamily = FontFamily.Serif)
+                    }
+                    job?.let { response ->
+                        if (response.status in setOf("QUEUED", "RUNNING")) {
+                            OutlinedButton(onClick = { cancelCurrentJob() }, enabled = !busy, shape = RoundedCornerShape(10.dp), modifier = Modifier.fillMaxWidth()) {
+                                Text("ANULUJ GENEROWANIE", fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                        if (response.outputs.isNotEmpty()) {
+                            Text("WYNIKI", color = Gold24, fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold)
+                            response.outputs.forEachIndexed { index, output ->
+                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Button(
+                                        onClick = { openMedia(response.id, output.media_index ?: index, output.filename) },
+                                        enabled = !busy,
+                                        colors = ButtonDefaults.buttonColors(containerColor = Gold24, contentColor = Obsidian),
+                                        modifier = Modifier.weight(1f)
+                                    ) { Text("OTWÓRZ", fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold) }
+                                    OutlinedButton(
+                                        onClick = { saveMedia(response.id, output.media_index ?: index, output.filename) },
+                                        enabled = !busy,
+                                        modifier = Modifier.weight(1f)
+                                    ) { Text("ZAPISZ", fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold) }
+                                }
+                            }
+                            previewBitmap?.let { bitmap ->
+                                Image(bitmap.asImageBitmap(), previewName, Modifier.fillMaxWidth().heightIn(max = 420.dp), ContentScale.Fit)
+                            }
+                        }
+                        response.error?.let { Text("Błąd: ${it}", color = MaterialTheme.colorScheme.error) }
                     }
                 }
             }
+        }
+    }
 
-            job?.let { response ->
-                HorizontalDivider()
-                Text("ZADANIE", color = Gold24, style = MaterialTheme.typography.labelMedium)
-                Text(response.id, style = MaterialTheme.typography.titleSmall)
-                Text(
-                    when (response.status) {
-                        "QUEUED" -> "Status: W kolejce" + (response.queue_position?.let { " · pozycja " + it } ?: "")
-                        "RUNNING" -> "Status: Uruchomione · generowanie w toku"
-                        "COMPLETED" -> "Status: Zakończone"
-                        "CANCELLED" -> "Status: Anulowane"
-                        "FAILED" -> "Status: Błąd"
-                        "UNKNOWN" -> "Status: Niepewny"
-                        else -> "Status: " + response.status
-                    }
-                )
-                if (response.status in setOf("QUEUED", "RUNNING")) {
-                    OutlinedButton(
-                        onClick = { cancelCurrentJob() },
-                        enabled = !busy,
-                        modifier = Modifier.fillMaxWidth()
-                    ) { Text("Anuluj generowanie") }
-                }
-                if (response.outputs.isNotEmpty()) {
-                    Text("WYNIKI", color = Gold24, style = MaterialTheme.typography.titleMedium)
-                    response.outputs.forEachIndexed { index, output ->
-                        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text(
-                                listOfNotNull(output.filename, output.subfolder, output.type, output.format).joinToString(" · "),
-                                style = MaterialTheme.typography.bodySmall
-                            )
-                            Row(
-                                Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Button(
-                                    onClick = { openMedia(response.id, output.media_index ?: index, output.filename) },
-                                    enabled = !busy,
-                                    modifier = Modifier.weight(1f)
-                                ) { Text("Otwórz") }
-                                OutlinedButton(
-                                    onClick = { saveMedia(response.id, output.media_index ?: index, output.filename) },
-                                    enabled = !busy,
-                                    modifier = Modifier.weight(1f)
-                                ) { Text("Zapisz") }
-                            }
-                        }
-                    }
-                    previewBitmap?.let { bitmap ->
-                        Card(Modifier.fillMaxWidth()) {
-                            Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                Text("Podgląd obrazu" + (previewName?.let { ": " + it } ?: ""))
-                                Image(
-                                    bitmap = bitmap.asImageBitmap(),
-                                    contentDescription = previewName,
-                                    modifier = Modifier.fillMaxWidth(),
-                                    contentScale = ContentScale.Fit
-                                )
-                            }
-                        }
-                    }
-                    Text(
-                        "Media są pobierane przez uwierzytelniony backend; ComfyUI pozostaje prywatne i nie jest dostępne z telefonu.",
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                }
-                response.error?.let {
-                    Text("Błąd: ${it}", color = MaterialTheme.colorScheme.error)
-                }
-            }
 
-            HorizontalDivider()
-            Text(
-                "Klucz API i token zatwierdzania pozostają wyłącznie w pamięci ekranu; nie są zapisywane w aplikacji.",
-                style = MaterialTheme.typography.bodySmall
-            )
+@Composable
+private fun ModelTypeBadge(type: String, count: Int, modifier: Modifier = Modifier) {
+    Surface(
+        modifier = modifier,
+        color = Color(0xFF0C0B09),
+        shape = RoundedCornerShape(9.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF3D3119))
+    ) {
+        Column(Modifier.padding(horizontal = 8.dp, vertical = 7.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(type, color = GoldSoft, fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelSmall)
+            Text(count.toString(), color = Ivory, fontFamily = FontFamily.Serif, style = MaterialTheme.typography.bodySmall)
         }
     }
 }
 
 @Composable
-private fun StudioModeCard(code: String, title: String, subtitle: String, selected: Boolean, onClick: () -> Unit, modifier: Modifier) {
+private fun StudioModeCard(
+    code: String,
+    title: String,
+    subtitle: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier
+) {
     Column(
         modifier
-            .clip(RoundedCornerShape(12.dp))
-            .background(if (selected) ObsidianRaised else ObsidianSurface)
-            .border(1.dp, if (selected) Gold24 else Color(0xFF332F27), RoundedCornerShape(12.dp))
+            .clip(RoundedCornerShape(14.dp))
+            .background(if (selected) Color(0xFF17130B) else Color(0xFF0D0C0A))
+            .border(1.dp, if (selected) Gold24 else Color(0xFF40361F), RoundedCornerShape(14.dp))
             .clickable(onClick = onClick)
             .padding(14.dp)
     ) {
-        Text(code, color = Gold24, fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold)
-        Spacer(Modifier.height(5.dp))
-        Text(title, color = Ivory, fontFamily = FontFamily.Serif)
-        Text(subtitle, color = MutedGold, style = MaterialTheme.typography.bodySmall)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text(code, color = Gold24, fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+            if (selected) Text("●", color = Gold24, fontSize = 9.sp)
+        }
+        Spacer(Modifier.height(6.dp))
+        Text(title, color = Ivory, fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+        Text(subtitle, color = MutedGold, fontFamily = FontFamily.Serif, style = MaterialTheme.typography.bodySmall)
     }
 }
 
 @Composable
 private fun DarkCard(content: @Composable ColumnScope.() -> Unit) {
     Card(
-        colors = CardDefaults.cardColors(containerColor = ObsidianSurface),
-        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF332F27)),
+        colors = CardDefaults.cardColors(containerColor = ObsidianPanel),
+        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF3F351D)),
+        shape = RoundedCornerShape(14.dp),
         modifier = Modifier.fillMaxWidth()
     ) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp), content = content)
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp), content = content)
     }
 }
 
