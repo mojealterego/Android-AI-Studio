@@ -1,10 +1,9 @@
 package com.mojealterego.aistudio
 
 enum class ModelSlot(val key: String, val title: String, val subtitle: String) {
-    CHAT("chat", "CHAT", "rozmowa + JARVIS"),
-    CODE("code", "CODE", "coding + agent"),
-    IMAGE("image", "image", "generator obrazu"),
-    VIDEO("video", "video", "generator wideo")
+    CHAT_CODE("chat-code", "CHAT + CODE", "jeden wspólny GGUF dla rozmowy, JARVIS i kodu"),
+    IMAGE("image", "IMAGE", "generator obrazu"),
+    VIDEO("video", "VIDEO", "generator wideo")
 }
 
 data class LoadedModel(
