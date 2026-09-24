@@ -875,7 +875,12 @@ private fun StudioScreen() {
                                 }
                             }
                             previewBitmap?.let { bitmap ->
-                                Image(bitmap.asImageBitmap(), previewName, Modifier.fillMaxWidth().heightIn(max = 420.dp), ContentScale.Fit)
+                                Image(
+                                    bitmap = bitmap.asImageBitmap(),
+                                    contentDescription = previewName,
+                                    modifier = Modifier.fillMaxWidth().heightIn(max = 420.dp),
+                                    contentScale = ContentScale.Fit
+                                )
                             }
                         }
                         response.error?.let { Text("Błąd: ${it}", color = MaterialTheme.colorScheme.error) }
@@ -886,8 +891,7 @@ private fun StudioScreen() {
     }
     }
     }
-    }
-
+}
 
 @Composable
 private fun ModelTypeBadge(type: String, count: Int, modifier: Modifier = Modifier) {
