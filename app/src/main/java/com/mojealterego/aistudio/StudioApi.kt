@@ -136,7 +136,10 @@ data class RuntimeSlotState(
     val memory_mb: Int? = null
 )
 
-data class RuntimeLoadRequest(val model_path: String, val model_name: String, val memory_mb: Int? = null)\ndata class RuntimeLoadResponse(val status: String, val slot: RuntimeSlotState)\n\ndata class RuntimeStateResponse(
+data class RuntimeLoadRequest(val model_path: String, val model_name: String, val memory_mb: Int? = null)
+data class RuntimeLoadResponse(val status: String, val slot: RuntimeSlotState)
+
+data class RuntimeStateResponse(
     val slots: List<RuntimeSlotState> = emptyList(),
     val simultaneous_resident_slots: Int = 3
 )
@@ -150,8 +153,12 @@ data class HfModel(
     val url: String? = null
 )
 
-data class HfSearchResponse(val models: List<HfModel> = emptyList())\n\ndata class HfDownloadRequest(val repo_id: String, val filename: String, val revision: String = "main")\ndata class HfDownloadResponse(val status: String, val path: String, val bytes: Long, val repo_id: String, val filename: String)
-\ninterface StudioApi {
+data class HfSearchResponse(val models: List<HfModel> = emptyList())
+
+data class HfDownloadRequest(val repo_id: String, val filename: String, val revision: String = "main")
+data class HfDownloadResponse(val status: String, val path: String, val bytes: Long, val repo_id: String, val filename: String)
+
+interface StudioApi {
     @GET("api/omni/runtime")
     suspend fun runtimeState(
         @Header("Authorization") authorization: String
@@ -171,7 +178,13 @@ data class HfSearchResponse(val models: List<HfModel> = emptyList())\n\ndata cla
         @retrofit2.http.Query("limit") limit: Int = 20
     ): HfSearchResponse
 
-    @retrofit2.http.POST("api/models/hf/download")\n    suspend fun downloadHuggingFace(\n        @Header("Authorization") authorization: String,\n        @Body request: HfDownloadRequest\n    ): HfDownloadResponse\n\n    @GET("api/health")
+    @retrofit2.http.POST("api/models/hf/download")
+    suspend fun downloadHuggingFace(
+        @Header("Authorization") authorization: String,
+        @Body request: HfDownloadRequest
+    ): HfDownloadResponse
+
+    @GET("api/health")
     suspend fun health(): Map<String, String>
 
     @GET("api/v2/workflows")
