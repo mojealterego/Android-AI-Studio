@@ -238,4 +238,84 @@ private fun shareMedia(context: android.content.Context, uri: Uri) {
         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
     }
     context.startActivity(Intent.createChooser(intent, "Opublikuj / udostępnij"))
+}@Composable
+private fun SocialPublishScreen(onBack: () -> Unit) {
+    val context = LocalContext.current
+    var caption by remember { mutableStateOf("") }
+    var selectedUri by remember { mutableStateOf<Uri?>(null) }
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        selectedUri = uri
+    }
+    val targets = listOf(
+        "INSTAGRAM" to "com.instagram.android",
+        "FACEBOOK" to "com.facebook.katana",
+        "TIKTOK" to "com.zhiliaoapp.musically",
+        "YOUTUBE" to "com.google.android.youtube",
+        "X" to "com.twitter.android"
+    )
+    fun publish(packageName: String?) {
+        val uri = selectedUri ?: return
+        val mime = context.contentResolver.getType(uri) ?: "application/octet-stream"
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type=mime
+            putExtra(Intent.EXTRA_STREAM,uri)
+            if(caption.isNotBlank()) putExtra(Intent.EXTRA_TEXT,caption)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            if(packageName != null) setPackage(packageName)
+        }
+        try {
+            context.startActivity(intent)
+        } catch(_: Exception) {
+            val fallback=Intent(Intent.ACTION_SEND).apply {
+                type=mime
+                putExtra(Intent.EXTRA_STREAM,uri)
+                if(caption.isNotBlank()) putExtra(Intent.EXTRA_TEXT,caption)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            context.startActivity(Intent.createChooser(fallback,"Opublikuj / udostępnij"))
+        }
+    }
+    Column(Modifier.fillMaxSize().background(HubBg).padding(16.dp)) {
+        HeaderRow("PUBLISH · IMAGE / VIDEO",onBack)
+        Text("MEDIA PUBLISHING",color=HubGold,fontWeight=FontWeight.Bold)
+        Text("Wybierz wygenerowany obraz lub film, dodaj opis i przekaż plik bezpośrednio do zainstalowanej aplikacji społecznościowej.",color=HubMuted,fontSize=11.sp)
+        Spacer(Modifier.height(10.dp))
+        OutlinedButton(onClick={picker.launch(arrayOf("image/*","video/*"))},modifier=Modifier.fillMaxWidth()) {
+            Text(if(selectedUri==null) "WYBIERZ IMAGE / VIDEO" else "ZMIENIĆ PLIK")
+        }
+        OutlinedTextField(caption,{caption=it},label={Text("Opis / caption")},modifier=Modifier.fillMaxWidth(),minLines=3)
+        Spacer(Modifier.height(8.dp))
+        targets.forEach { (label,pkg) ->
+            Button(
+                onClick={publish(pkg)},
+                enabled=selectedUri!=null,
+                modifier=Modifier.fillMaxWidth(),
+                colors=ButtonDefaults.buttonColors(containerColor=HubGold,contentColor=HubBg)
+            ){Text("PUBLIKUJ → "+label,fontWeight=FontWeight.Bold)}
+            Spacer(Modifier.height(5.dp))
+        }
+        OutlinedButton(onClick={publish(null)},enabled=selectedUri!=null,modifier=Modifier.fillMaxWidth()) {
+            Text("INNE APLIKACJE / SYSTEMOWY SHARE")
+        }
+        Spacer(Modifier.height(8.dp))
+        Text("Uprawnienia logowania pozostają w aplikacji docelowej; AI Studio przekazuje plik przez Android Sharesheet/Intent.",color=HubMuted,fontSize=10.sp)
+    }
+}
+
+@Composable
+private fun HeaderRow(title: String, onBack: () -> Unit) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        TextButton(onClick = onBack) { Text("←", color = HubGold, fontSize = 22.sp) }
+        Text(title, color = HubIvory, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Serif)
+    }
+}
+
+private fun shareMedia(context: android.content.Context, uri: Uri) {
+    val mime = context.contentResolver.getType(uri) ?: "application/octet-stream"
+    val intent = Intent(Intent.ACTION_SEND).apply {
+        type = mime
+        putExtra(Intent.EXTRA_STREAM, uri)
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+    context.startActivity(Intent.createChooser(intent, "Opublikuj / udostępnij"))
 }
