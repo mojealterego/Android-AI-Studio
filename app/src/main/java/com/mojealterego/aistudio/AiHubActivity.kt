@@ -117,3 +117,171 @@ private fun ModuleCard(module:HubModule, onClick: () -> Unit){
   }
  }
 }
+
+
+@Composable
+private fun ModelRuntimeScreen(onBack: () -> Unit) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var server by remember { mutableStateOf("") }
+    var apiKey by remember { mutableStateOf("") }
+    var status by remember { mutableStateOf("Trzy sloty GGUF: CHAT+CODE, IMAGE, VIDEO.") }
+    var busy by remember { mutableStateOf(false) }
+    var selectedSlot by remember { mutableStateOf(0) }
+    var slots by remember {
+        mutableStateOf(
+            listOf(
+                ResidentSlot("chat-code", "CHAT + CODE", "GGUF #1"),
+                ResidentSlot("image", "IMAGE", "GGUF #2"),
+                ResidentSlot("video", "VIDEO", "GGUF #3")
+            )
+        )
+    }
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            val name = uri.lastPathSegment ?: "model.gguf"
+            slots = slots.mapIndexed { index, slot ->
+                if (index == selectedSlot) slot.copy(fileName = name, path = uri.toString(), status = "READY") else slot
+            }
+            status = "Wybrano model dla slotu " + (selectedSlot + 1)
+        }
+    }
+    fun auth() = "Bearer " + apiKey.trim()
+    fun api() = StudioApi.create(server)
+    Column(Modifier.fillMaxSize().background(HubBg).padding(16.dp)) {
+        HeaderRow("MODEL VAULT · 3× GGUF", onBack)
+        Text("SLOT 1 CHAT + CODE · SLOT 2 IMAGE · SLOT 3 VIDEO", color = HubGold, fontWeight = FontWeight.Bold)
+        Text("Wymagane jednoczesne utrzymywanie trzech rezydentnych modeli.", color = HubMuted, fontSize = 12.sp)
+        Spacer(Modifier.height(10.dp))
+        slots.forEachIndexed { index, slot ->
+            Surface(
+                Modifier.fillMaxWidth().clickable { selectedSlot = index },
+                color = if (selectedSlot == index) Color(0xFF19150D) else HubPanel,
+                shape = RoundedCornerShape(13.dp),
+                border = BorderStroke(1.dp, if (selectedSlot == index) HubGold else Color(0xFF3B311B))
+            ) {
+                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("SLOT " + (index + 1) + " · " + slot.title, color = HubGold2, fontWeight = FontWeight.Bold)
+                        Text(if (slot.loaded) "LOADED" else slot.status, color = HubMuted, fontSize = 9.sp)
+                    }
+                    Text(slot.purpose, color = HubIvory, fontSize = 11.sp)
+                    Text(if (slot.fileName.isBlank()) "Brak modelu" else slot.fileName, color = Color(0xFFC5BCA9), fontSize = 10.sp)
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                        OutlinedButton(
+                            onClick = { selectedSlot = index; picker.launch(arrayOf("*/*")) },
+                            modifier = Modifier.weight(1f)
+                        ) { Text("WYBIERZ GGUF") }
+                        Button(
+                            onClick = {
+                                if (server.isBlank() || apiKey.isBlank() || slot.fileName.isBlank()) {
+                                    status = "Uzupełnij backend, API key i model."
+                                } else {
+                                    scope.launch {
+                                        busy = true
+                                        try {
+                                            api().loadRuntimeSlot(slot.id, auth(), RuntimeLoadRequest(slot.path, slot.fileName))
+                                            slots = slots.mapIndexed { i, s -> if (i == index) s.copy(loaded = true, status = "LOADED") else s }
+                                            status = "Slot " + (index + 1) + " załadowany."
+                                        } catch (e: Exception) {
+                                            status = "Błąd ładowania: " + (e.localizedMessage ?: "błąd")
+                                        } finally { busy = false }
+                                    }
+                                }
+                            },
+                            enabled = !busy && slot.fileName.isNotBlank(),
+                            colors = ButtonDefaults.buttonColors(containerColor = HubGold, contentColor = HubBg),
+                            modifier = Modifier.weight(1f)
+                        ) { Text("LOAD") }
+                    }
+                }
+            }
+            Spacer(Modifier.height(7.dp))
+        }
+        Button(
+            onClick = {
+                if (server.isBlank() || apiKey.isBlank()) {
+                    status = "Podaj backend HTTPS i API key."
+                } else scope.launch {
+                    busy = true
+                    try {
+                        val state = api().runtimeState(auth())
+                        status = "Backend potwierdził stan " + state.slots.size + " slotów."
+                    } catch (e: Exception) {
+                        status = "Błąd runtime: " + (e.localizedMessage ?: "błąd")
+                    } finally { busy = false }
+                }
+            },
+            enabled = !busy,
+            modifier = Modifier.fillMaxWidth()
+        ) { Text("ODŚWIEŻ STAN 3 SLOTÓW") }
+        Spacer(Modifier.height(10.dp))
+        Text("HUGGING FACE", color = HubGold, fontWeight = FontWeight.Bold)
+        Text("Backend ma wyszukiwanie repozytoriów HF oraz bezpieczny endpoint pobierania plików modeli.", color = HubMuted, fontSize = 11.sp)
+        OutlinedTextField(
+            value = server, onValueChange = { server = it },
+            label = { Text("Backend HTTPS") }, modifier = Modifier.fillMaxWidth(), singleLine = true
+        )
+        OutlinedTextField(
+            value = apiKey, onValueChange = { apiKey = it },
+            label = { Text("Klucz API") }, modifier = Modifier.fillMaxWidth(), singleLine = true
+        )
+        Text(status, color = HubIvory, fontSize = 11.sp)
+    }
+}
+
+private data class ResidentSlot(
+    val id: String,
+    val title: String,
+    val purpose: String,
+    val fileName: String = "",
+    val path: String = "",
+    val loaded: Boolean = false,
+    val status: String = "EMPTY"
+)
+
+@Composable
+private fun SocialPublishScreen(onBack: () -> Unit) {
+    val context = LocalContext.current
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) shareMedia(context, uri)
+    }
+    Column(Modifier.fillMaxSize().background(HubBg).padding(16.dp)) {
+        HeaderRow("PUBLISH · IMAGE / VIDEO", onBack)
+        Spacer(Modifier.height(12.dp))
+        Text("PUBLIKACJA W MEDIACH SPOŁECZNOŚCIOWYCH", color = HubGold, fontWeight = FontWeight.Bold)
+        Text(
+            "Wybierz wygenerowany plik. Android otworzy systemowy Sharesheet z aplikacjami, które mogą przyjąć obraz lub wideo.",
+            color = HubMuted, fontSize = 12.sp
+        )
+        Spacer(Modifier.height(12.dp))
+        Button(
+            onClick = { picker.launch(arrayOf("image/*", "video/*")) },
+            colors = ButtonDefaults.buttonColors(containerColor = HubGold, contentColor = HubBg),
+            modifier = Modifier.fillMaxWidth()
+        ) { Text("WYBIERZ IMAGE / VIDEO → PUBLIKUJ", fontWeight = FontWeight.Bold) }
+        Spacer(Modifier.height(8.dp))
+        Text(
+            "Hasła do serwisów społecznościowych pozostają poza aplikacją. Publikację wykonuje wybrana aplikacja docelowa.",
+            color = HubMuted, fontSize = 10.sp
+        )
+    }
+}
+
+@Composable
+private fun HeaderRow(title: String, onBack: () -> Unit) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        TextButton(onClick = onBack) { Text("←", color = HubGold, fontSize = 22.sp) }
+        Text(title, color = HubIvory, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Serif)
+    }
+}
+
+private fun shareMedia(context: android.content.Context, uri: Uri) {
+    val mime = context.contentResolver.getType(uri) ?: "application/octet-stream"
+    val intent = Intent(Intent.ACTION_SEND).apply {
+        type = mime
+        putExtra(Intent.EXTRA_STREAM, uri)
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+    context.startActivity(Intent.createChooser(intent, "Opublikuj / udostępnij"))
+}
