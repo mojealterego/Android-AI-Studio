@@ -496,6 +496,30 @@ async def create_job_v2(request: CreateJobV2, principal_id: str) -> dict[str, An
     return job
 
 
+@app.post("/api/v2/approvals/{grant_id}/revoke")
+async def revoke_approval(
+    grant_id: str,
+    approver: str = Depends(approver_subject),
+):
+    """Revoke a delegated grant without changing project configuration."""
+    grant = CONSENT_STORE.get(grant_id)
+    if grant is None or not hmac.compare_digest(grant.subject_id, approver):
+        raise HTTPException(status_code=404, detail="Approval grant not found")
+    revoked = CONSENT_STORE.revoke(grant_id)
+    if not revoked:
+        raise HTTPException(status_code=409, detail="Approval grant already revoked")
+    RECEIPT_STORE.append(
+        _receipt(
+            actor_id=approver,
+            status=ActionStatus.REVOKED,
+            resource=grant.resource,
+            grant_id=grant_id,
+            task_id=grant.task_id,
+            provenance="human-revocation",
+        )
+    )
+    return {"grant_id": grant_id, "revoked": True, "status": "revoked"}
+
 @app.post("/api/v2/jobs", status_code=201)
 async def dispatch_job_v2(
     request: CreateJobV2,
