@@ -14,6 +14,7 @@ router = APIRouter(prefix="/api/models", tags=["models"])
 
 MODEL_ROOT = Path(os.getenv("MODEL_ROOT", "/models")).resolve()
 HF_BASE = "https://huggingface.co"
+HF_TOKEN = os.getenv("HF_TOKEN", "").strip()
 MAX_DOWNLOAD_BYTES = int(os.getenv("MODEL_MAX_DOWNLOAD_BYTES", str(200 * 1024**3)))
 API_KEY = os.getenv("API_KEY", "").strip()
 HF_REPO_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
@@ -49,7 +50,8 @@ async def search_huggingface(q: str = "", limit: int = 20, authorization: str | 
     await _authorize(authorization)
     limit = max(1, min(limit, 50))
     async with httpx.AsyncClient(timeout=20.0) as client:
-        response = await client.get(f"{HF_BASE}/api/models", params={"search": q, "limit": limit, "full": "true"})
+        headers = {"Authorization": f"Bearer {HF_TOKEN}"} if HF_TOKEN else {}
+        response = await client.get(f"{HF_BASE}/api/models", params={"search": q, "limit": limit, "full": "true"}, headers=headers)
     if response.status_code >= 400:
         raise HTTPException(status_code=502, detail="Hugging Face search failed")
     return {"models": [
@@ -70,7 +72,10 @@ async def download_huggingface(request: HFDownloadRequest, authorization: str | 
     target = _safe_model_path(f"{repo_dir}/{request.filename}")
     target.parent.mkdir(parents=True, exist_ok=True)
     async with httpx.AsyncClient(timeout=None, follow_redirects=True) as client:
-        async with client.stream("GET", url, headers={"Accept": "application/octet-stream"}) as response:
+        headers = {"Accept": "application/octet-stream"}
+        if HF_TOKEN:
+            headers["Authorization"] = f"Bearer {HF_TOKEN}"
+        async with client.stream("GET", url, headers=headers) as response:
             if response.status_code >= 400:
                 raise HTTPException(status_code=response.status_code, detail="Hugging Face download failed")
             length = response.headers.get("content-length")
