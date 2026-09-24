@@ -25,6 +25,7 @@ from .receipt_store import ReceiptStore
 from .approval_auth import ApprovalAuthenticationError, authenticate_approver
 from .job_store import JobStore
 from .job_control import make_job_router
+from .model_vault import router as model_router
 
 COMFYUI = os.getenv("COMFYUI_BASE_URL", "http://127.0.0.1:8188").rstrip("/")
 API_KEY = os.getenv("API_KEY", "").strip()
@@ -41,6 +42,7 @@ RECEIPT_STORE = ReceiptStore(RECEIPT_DB_PATH)
 MEDIA_MAX_BYTES = int(os.getenv("MEDIA_MAX_BYTES", str(250 * 1024 * 1024)))
 
 app = FastAPI(title="AI Studio API", version="0.3.0")
+app.include_router(model_router)
 origins = [x.strip() for x in os.getenv("CORS_ORIGINS", "").split(",") if x.strip()]
 app.add_middleware(
     CORSMiddleware,
