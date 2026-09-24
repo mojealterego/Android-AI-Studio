@@ -135,7 +135,7 @@ data class RuntimeSlotState(
     val memory_mb: Int? = null
 )
 
-data class RuntimeStateResponse(
+data class RuntimeLoadRequest(val model_path: String, val model_name: String, val memory_mb: Int? = null)\ndata class RuntimeLoadResponse(val status: String, val slot: RuntimeSlotState)\n\ndata class RuntimeStateResponse(
     val slots: List<RuntimeSlotState> = emptyList(),
     val simultaneous_resident_slots: Int = 3
 )
@@ -155,6 +155,13 @@ data class HfSearchResponse(val models: List<HfModel> = emptyList())
     suspend fun runtimeState(
         @Header("Authorization") authorization: String
     ): RuntimeStateResponse
+
+    @POST("api/omni/runtime/{slot_id}/load")
+    suspend fun loadRuntimeSlot(
+        @retrofit2.http.Path("slot_id") slotId: String,
+        @Header("Authorization") authorization: String,
+        @Body request: RuntimeLoadRequest
+    ): RuntimeLoadResponse
 
     @GET("api/models/hf/search")
     suspend fun searchHuggingFace(
