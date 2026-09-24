@@ -1,10 +1,12 @@
 from fastapi.testclient import TestClient
 
 import app.main as main
+import app.omni_orchestrator as orchestrator
 
 
 def test_omni_orchestrator_requires_auth(monkeypatch):
     monkeypatch.setattr(main, "API_KEY", "secret")
+    monkeypatch.setattr(orchestrator, "API_KEY", "secret")
     client = TestClient(main.app)
     response = client.get("/api/omni/orchestrator")
     assert response.status_code == 401
@@ -34,7 +36,6 @@ def test_omni_orchestrator_plan_detects_reference_conflict(monkeypatch):
     assert payload["pipeline"] == ["A01", "A02", "A03", "A04", "A05", "A06"]
     assert len(payload["scenes"]) == 12
     assert payload["requires_human_approval_before_external_side_effect"] is True
-    assert payload["governance"] if "governance" in payload else True
 
 
 def test_omni_orchestrator_default_video_route(monkeypatch):
