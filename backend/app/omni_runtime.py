@@ -44,6 +44,14 @@ class SlotLoadRequest(BaseModel):
     model_name: str = Field(min_length=1, max_length=256)
     memory_mb: int | None = Field(default=None, ge=1, le=1024 * 1024)
 
+class ResidentModel(BaseModel):
+    model_path: str = Field(min_length=1, max_length=1024)
+    model_name: str = Field(min_length=1, max_length=256)
+    memory_mb: int | None = Field(default=None, ge=1, le=1024 * 1024)
+
+class LoadAllRequest(BaseModel):
+    slots: list[ResidentModel] = Field(min_length=3, max_length=3)
+
 class GenerateGuardRequest(BaseModel):
     slot_id: str = Field(min_length=1, max_length=64)
     estimated_cost: float = Field(default=0.0, ge=0.0, le=100000.0)
@@ -81,6 +89,32 @@ async def load_slot(slot_id: str, request: SlotLoadRequest, authorization: str |
     state.memory_mb = request.memory_mb
     state.updated_at = time.time()
     return {"status": "loaded", "slot": asdict(state)}
+
+@router.post("/runtime/load-all")
+async def load_all(request: LoadAllRequest, authorization: str | None = Header(default=None)) -> dict[str, Any]:
+    """Atomically register all three resident model slots."""
+    _auth(authorization)
+    by_slot = {slot.id: item for slot, item in zip(RUNTIME_SLOTS, request.slots)}
+    if len(by_slot) != 3:
+        raise HTTPException(status_code=422, detail="Exactly three resident slots are required")
+    for slot in RUNTIME_SLOTS:
+        item = by_slot[slot.id]
+        if slot.format == "GGUF" and not item.model_name.lower().endswith(".gguf"):
+            raise HTTPException(status_code=422, detail=f"{slot.id} requires a GGUF model")
+    now = time.time()
+    for slot in RUNTIME_SLOTS:
+        item = by_slot[slot.id]
+        state = _SLOT_STATE[slot.id]
+        state.loaded = True
+        state.model_path = item.model_path
+        state.model_name = item.model_name
+        state.memory_mb = item.memory_mb
+        state.updated_at = now
+    return {
+        "status": "loaded",
+        "simultaneous_resident_slots": 3,
+        "slots": [{**asdict(slot), "state": asdict(_SLOT_STATE[slot.id])} for slot in RUNTIME_SLOTS],
+    }
 
 @router.post("/runtime/{slot_id}/unload")
 async def unload_slot(slot_id: str, authorization: str | None = Header(default=None)) -> dict[str, Any]:
