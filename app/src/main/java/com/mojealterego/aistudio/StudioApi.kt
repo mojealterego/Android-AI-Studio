@@ -13,6 +13,7 @@ import retrofit2.http.Body
 import retrofit2.http.GET
 import retrofit2.http.Header
 import retrofit2.http.POST
+import retrofit2.http.Query
 import retrofit2.http.Streaming
 import retrofit2.http.Path
 import java.util.concurrent.TimeUnit
@@ -149,7 +150,7 @@ data class HfModel(
     val url: String? = null
 )
 
-data class HfSearchResponse(val models: List<HfModel> = emptyList())
+data class HfSearchResponse(val models: List<HfModel> = emptyList())\n\ndata class HfDownloadRequest(val repo_id: String, val filename: String, val revision: String = "main")\ndata class HfDownloadResponse(val status: String, val path: String, val bytes: Long, val repo_id: String, val filename: String)
 \ninterface StudioApi {
     @GET("api/omni/runtime")
     suspend fun runtimeState(
@@ -170,7 +171,7 @@ data class HfSearchResponse(val models: List<HfModel> = emptyList())
         @retrofit2.http.Query("limit") limit: Int = 20
     ): HfSearchResponse
 
-    @GET("api/health")
+    @retrofit2.http.POST("api/models/hf/download")\n    suspend fun downloadHuggingFace(\n        @Header("Authorization") authorization: String,\n        @Body request: HfDownloadRequest\n    ): HfDownloadResponse\n\n    @GET("api/health")
     suspend fun health(): Map<String, String>
 
     @GET("api/v2/workflows")
