@@ -147,13 +147,15 @@ data class RuntimeStateResponse(
     val simultaneous_resident_slots: Int = 3
 )
 
+data class HfFile(val filename: String, val size: Long? = null, val lfs: Map<String, Any?>? = null)
 data class HfModel(
     val id: String? = null,
     val private: Boolean = false,
     val downloads: Long? = null,
     val likes: Long? = null,
     val tags: List<String> = emptyList(),
-    val url: String? = null
+    val url: String? = null,
+    val files: List<HfFile> = emptyList()
 )
 
 data class HfSearchResponse(val models: List<HfModel> = emptyList())
