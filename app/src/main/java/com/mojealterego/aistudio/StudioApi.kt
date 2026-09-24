@@ -138,6 +138,9 @@ data class RuntimeSlotState(
 
 data class RuntimeLoadRequest(val model_path: String, val model_name: String, val memory_mb: Int? = null)
 data class RuntimeLoadResponse(val status: String, val slot: RuntimeSlotState)
+data class ResidentModelRequest(val model_path: String, val model_name: String, val memory_mb: Int? = null)
+data class LoadAllRuntimeRequest(val slots: List<ResidentModelRequest>)
+data class LoadAllRuntimeResponse(val status: String, val simultaneous_resident_slots: Int, val slots: List<RuntimeSlotState> = emptyList())
 
 data class RuntimeStateResponse(
     val slots: List<RuntimeSlotState> = emptyList(),
@@ -163,6 +166,12 @@ interface StudioApi {
     suspend fun runtimeState(
         @Header("Authorization") authorization: String
     ): RuntimeStateResponse
+
+    @POST("api/omni/runtime/load-all")
+    suspend fun loadAllRuntime(
+        @Header("Authorization") authorization: String,
+        @Body request: LoadAllRuntimeRequest
+    ): LoadAllRuntimeResponse
 
     @POST("api/omni/runtime/{slot_id}/load")
     suspend fun loadRuntimeSlot(
