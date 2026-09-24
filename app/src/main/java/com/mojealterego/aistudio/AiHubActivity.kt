@@ -48,7 +48,6 @@ private val modules = listOf(
  HubModule("CREATE","VOI","VOICE LAB","STT · TTS · dubbing · voice continuity","LOCAL / GPU"),
  HubModule("CREATE","MUS","MUSIC LAB","OpenMusic · MusicGen · MIDI Transformer","GPU WORKER"),
  HubModule("CREATE","PLG","PLUGIN HUB","MCP · apps · integrations · OAuth","GATEWAY"),
- HubModule("CREATE","MUS","MUSIC LAB","OpenMusic · MusicGen · MIDI Transformer","GPU WORKER"),
  HubModule("CREATE","AVA","AVATAR LAB","Duix · HunyuanPortrait · lip-sync","GPU WORKER"),
  HubModule("CREATE","NOV","STORY LAB","novel · screenplay · characters · continuity","AGENT"),
  HubModule("AGENT","JAR","JARVIS","memory · conversation · actions · personal assistant","LOCAL / REMOTE"),
