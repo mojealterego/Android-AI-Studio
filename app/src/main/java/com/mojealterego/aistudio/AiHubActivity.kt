@@ -308,15 +308,76 @@ private data class ResidentSlot(val slotId: String, val title: String, val purpo
 @Composable
 private fun OmniModuleScreen(code: String, onBack: () -> Unit) {
     val module = modules.firstOrNull { it.code == code }
+    val scope = rememberCoroutineScope()
+    var intent by remember { mutableStateOf("") }
+    var server by remember { mutableStateOf("") }
+    var apiKey by remember { mutableStateOf("") }
+    var plan by remember { mutableStateOf<OmniPlanResponse?>(null) }
+    var busy by remember { mutableStateOf(false) }
+    val agentCode = code in setOf("A01","A02","A03","A04","A05","A06","CIN")
+    val mediaType = when(code) {
+        "VID","CIN","A06" -> "VIDEO"
+        "VOI" -> "VOICE"
+        "MUS" -> "MUSIC"
+        "AUD" -> "AUDIO"
+        "COD" -> "CODE"
+        "RES" -> "RESEARCH"
+        else -> "IMAGE"
+    }
     Column(Modifier.fillMaxSize().background(HubBg).padding(16.dp)) {
         HeaderRow(module?.title ?: code, onBack)
         Spacer(Modifier.height(8.dp))
-        Surface(Modifier.fillMaxWidth(), color = HubPanel, shape = RoundedCornerShape(16.dp), border = BorderStroke(1.dp, Color(0xFF59491F))) {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text(module?.detail ?: "OMNI MODULE", color = HubIvory, fontSize = 15.sp)
-                Text("RUNTIME · " + (module?.runtime ?: "AGENT"), color = HubGold, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                Text("Module shell connected to the unified Command Center. Runtime adapters are activated only when their backend contract is verified.", color = HubMuted)
+        Surface(Modifier.fillMaxWidth(), color=HubPanel, shape=RoundedCornerShape(16.dp), border=BorderStroke(1.dp,Color(0xFF59491F))) {
+            Column(Modifier.padding(16.dp), verticalArrangement=Arrangement.spacedBy(10.dp)) {
+                Text(module?.detail ?: "OMNI MODULE", color=HubIvory, fontSize=15.sp)
+                Text("RUNTIME · " + (module?.runtime ?: "AGENT"), color=HubGold, fontSize=10.sp, fontWeight=FontWeight.Bold)
+                Text(
+                    if (agentCode) "A01–A06 działa jako jeden kontrolowany pipeline: intent → reference/identity → production → model routing → visual QA → cinema."
+                    else "Moduł korzysta ze wspólnego Command Center i nie otrzymuje uprawnień z promptu, obrazu, filmu ani strony WWW.",
+                    color=HubMuted, fontSize=11.sp
+                )
             }
+        }
+        Spacer(Modifier.height(10.dp))
+        if (agentCode) {
+            Text("ORCHESTRATOR", color=HubGold, fontWeight=FontWeight.Bold)
+            OutlinedTextField(server,{server=it},label={Text("Backend HTTPS")},modifier=Modifier.fillMaxWidth(),singleLine=true)
+            OutlinedTextField(apiKey,{apiKey=it},label={Text("API key")},modifier=Modifier.fillMaxWidth(),singleLine=true)
+            OutlinedTextField(intent,{intent=it},label={Text("Cel / polecenie")},modifier=Modifier.fillMaxWidth(),minLines=4)
+            Button(
+                onClick={
+                    if(server.isBlank()||apiKey.isBlank()||intent.isBlank()) return@Button
+                    scope.launch {
+                        busy=true
+                        try {
+                            plan=StudioApi.create(server).createOmniPlan(
+                                "Bearer "+apiKey.trim(),
+                                OmniPlanRequest(intent=intent,media_type=mediaType,scene_count=if(mediaType=="VIDEO") 12 else 1,target_duration_seconds=if(mediaType=="VIDEO") 7440 else 0)
+                            )
+                        } finally { busy=false }
+                    }
+                },
+                enabled=!busy && server.isNotBlank() && apiKey.isNotBlank() && intent.isNotBlank(),
+                colors=ButtonDefaults.buttonColors(containerColor=HubGold,contentColor=HubBg),
+                modifier=Modifier.fillMaxWidth()
+            ) { Text("URUCHOM A01–A06 PLAN",fontWeight=FontWeight.Bold) }
+            plan?.let { p ->
+                Spacer(Modifier.height(8.dp))
+                Surface(Modifier.fillMaxWidth(),color=HubPanel,shape=RoundedCornerShape(12.dp)) {
+                    Column(Modifier.padding(12.dp),verticalArrangement=Arrangement.spacedBy(6.dp)) {
+                        Text(p.status+" · "+p.plan_id.take(8),color=HubGold2,fontWeight=FontWeight.Bold)
+                        Text("PIPELINE  "+p.pipeline.joinToString(" → "),color=HubIvory,fontSize=10.sp)
+                        Text("MODELS  "+p.model_route.joinToString(" · "),color=HubMuted,fontSize=10.sp)
+                        Text("SCENES  "+p.scenes.size+" · TARGET 124 MIN MAX",color=HubMuted,fontSize=10.sp)
+                        p.reference_conflicts.forEach { Text("REVIEW: "+it,color=Color(0xFFE0A04A),fontSize=10.sp) }
+                        Text("QA  "+p.validation.filterValues{it}.keys.joinToString(" · "),color=HubIvory,fontSize=9.sp)
+                        if(p.requires_human_approval_before_external_side_effect) Text("HUMAN APPROVAL REQUIRED BEFORE EXTERNAL SIDE EFFECT",color=HubGold,fontSize=9.sp,fontWeight=FontWeight.Bold)
+                    }
+                }
+            }
+        } else {
+            Text("MODULE READY",color=HubGold,fontWeight=FontWeight.Bold)
+            Text("Ten ekran jest punktem wejścia do adaptera runtime. IMAGE / VIDEO / AUDIO / VOICE / MUSIC / PLUGIN HUB są już rozdzielone w Command Center; kolejne akcje przechodzą przez wspólny governance layer.",color=HubMuted,fontSize=12.sp)
         }
     }
 }
