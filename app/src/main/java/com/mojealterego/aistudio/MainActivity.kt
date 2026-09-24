@@ -859,7 +859,7 @@ private fun StudioScreen() {
                         }
                         if (response.outputs.isNotEmpty()) {
                             Text("WYNIKI", color = Gold24, fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold)
-                            response.outputs.forEachIndexed { index, output ->
+                            response.outputs.forEachIndexed { index: Int, output: JobOutput ->
                                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                     Button(
                                         onClick = { openMedia(response.id, output.media_index ?: index, output.filename) },
