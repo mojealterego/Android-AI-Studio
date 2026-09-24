@@ -205,15 +205,18 @@ async def load_all(request: LoadAllRequest, authorization: str | None = Header(d
         if slot.format == "GGUF" and not item.model_name.lower().endswith(".gguf"):
             raise HTTPException(status_code=422, detail=f"{slot.id} requires a GGUF model")
 
-    started: list[str] = []
     try:
-        for slot, item in zip(RUNTIME_SLOTS, request.slots):
-            await _start_slot(slot, item)
-            started.append(slot.id)
-    except HTTPException:
-        for slot_id in started:
-            await _stop_process(slot_id)
-            _SLOT_STATE[slot_id].loaded = False
+        # Start the three resident runtimes as one transaction. The tasks are
+        # scheduled together so CHAT+CODE, IMAGE and VIDEO are loaded as a
+        # single atomic operation rather than exposing a partially-loaded set.
+        await asyncio.gather(
+            *(_start_slot(slot, item) for slot, item in zip(RUNTIME_SLOTS, request.slots))
+        )
+    except Exception:
+        await asyncio.gather(*(_stop_process(slot.id) for slot in RUNTIME_SLOTS))
+        for slot in RUNTIME_SLOTS:
+            _SLOT_STATE[slot.id].loaded = False
+            _SLOT_STATE[slot.id].pid = None
         raise
     return {
         "status": "loaded",
