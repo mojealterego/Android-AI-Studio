@@ -19,6 +19,11 @@ API_KEY = os.getenv("API_KEY", "").strip()
 HF_REPO_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 
 
+class HFFile(BaseModel):
+    filename: str
+    size: int | None = None
+    lfs: dict[str, Any] | None = None
+
 class HFDownloadRequest(BaseModel):
     repo_id: str = Field(min_length=3, max_length=200)
     filename: str = Field(min_length=1, max_length=500)
@@ -48,7 +53,7 @@ async def search_huggingface(q: str = "", limit: int = 20, authorization: str | 
     if response.status_code >= 400:
         raise HTTPException(status_code=502, detail="Hugging Face search failed")
     return {"models": [
-        {"id": item.get("id"), "private": item.get("private", False), "downloads": item.get("downloads"), "likes": item.get("likes"), "tags": item.get("tags", []), "url": f"{HF_BASE}/{item.get('id')}"}
+        {"id": item.get("id"), "private": item.get("private", False), "downloads": item.get("downloads"), "likes": item.get("likes"), "tags": item.get("tags", []), "url": f"{HF_BASE}/{item.get('id')}", "files": [{"filename": x.get("rfilename", ""), "size": x.get("size"), "lfs": x.get("lfs")} for x in item.get("siblings", []) if isinstance(x, dict)]}
         for item in response.json() if isinstance(item, dict)
     ]}
 
@@ -61,7 +66,8 @@ async def download_huggingface(request: HFDownloadRequest, authorization: str | 
     if ".." in Path(request.filename).parts:
         raise HTTPException(status_code=400, detail="Invalid filename")
     url = f"{HF_BASE}/{request.repo_id}/resolve/{request.revision}/{request.filename}"
-    target = _safe_model_path(request.filename)
+    repo_dir = re.sub(r"[^A-Za-z0-9_.-]+", "_", request.repo_id.replace("/", "__"))
+    target = _safe_model_path(f"{repo_dir}/{request.filename}")
     target.parent.mkdir(parents=True, exist_ok=True)
     async with httpx.AsyncClient(timeout=None, follow_redirects=True) as client:
         async with client.stream("GET", url, headers={"Accept": "application/octet-stream"}) as response:
