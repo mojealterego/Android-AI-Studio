@@ -28,6 +28,7 @@ from .job_control import make_job_router
 from .model_vault import router as model_router
 from .omni_runtime import router as omni_runtime_router
 from .omni_agents import router as omni_agents_router
+from .omni_orchestrator import router as omni_orchestrator_router
 
 COMFYUI = os.getenv("COMFYUI_BASE_URL", "http://127.0.0.1:8188").rstrip("/")
 API_KEY = os.getenv("API_KEY", "").strip()
@@ -47,6 +48,7 @@ app = FastAPI(title="AI Studio API", version="0.3.0")
 app.include_router(model_router)
 app.include_router(omni_runtime_router)
 app.include_router(omni_agents_router)
+app.include_router(omni_orchestrator_router)
 origins = [x.strip() for x in os.getenv("CORS_ORIGINS", "").split(",") if x.strip()]
 app.add_middleware(
     CORSMiddleware,
