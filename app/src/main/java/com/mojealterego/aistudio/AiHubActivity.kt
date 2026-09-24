@@ -299,3 +299,22 @@ private fun HeaderRow(title: String, onBack: () -> Unit) {
         Text(title,color=HubIvory,fontWeight=FontWeight.Bold,fontFamily=FontFamily.Serif)
     }
 }
+
+
+private data class ResidentSlot(val slotId: String, val title: String, val purpose: String, val fileName: String = "", val path: String = "", val loaded: Boolean = false, val status: String = "EMPTY")
+
+@Composable
+private fun OmniModuleScreen(code: String, onBack: () -> Unit) {
+    val module = modules.firstOrNull { it.code == code }
+    Column(Modifier.fillMaxSize().background(HubBg).padding(16.dp)) {
+        HeaderRow(module?.title ?: code, onBack)
+        Spacer(Modifier.height(8.dp))
+        Surface(Modifier.fillMaxWidth(), color = HubPanel, shape = RoundedCornerShape(16.dp), border = BorderStroke(1.dp, Color(0xFF59491F))) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(module?.detail ?: "OMNI MODULE", color = HubIvory, fontSize = 15.sp)
+                Text("RUNTIME · " + (module?.runtime ?: "AGENT"), color = HubGold, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                Text("Module shell connected to the unified Command Center. Runtime adapters are activated only when their backend contract is verified.", color = HubMuted)
+            }
+        }
+    }
+}
