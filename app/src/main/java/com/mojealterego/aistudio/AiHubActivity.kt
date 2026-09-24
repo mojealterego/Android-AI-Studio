@@ -72,7 +72,8 @@ private val modules = listOf(
  HubModule("SYSTEM","EVA","EVALUATION","Promptfoo · OmniVideoBench · regression","LAB"),
  HubModule("SYSTEM","EVO","EVOLUTION LAB","AgentOpt · DGM · OpenAlpha Evolve · OpenEvolve","ISOLATED"),
  HubModule("SYSTEM","SAFE","SAFETY","NSFW classifier · content policy · audit","ON-DEVICE"),
- HubModule("SYSTEM","COM","COMMUNICATION","voice/video · screen share · collaboration","ADAPTERS")
+ HubModule("SYSTEM","COM","COMMUNICATION","voice/video · screen share · collaboration","ADAPTERS"),
+ HubModule("SYSTEM","SET","SETTINGS","language · providers · runtime · privacy · storage","SYSTEM")
 )
 
 @Composable
@@ -92,6 +93,7 @@ private fun AiHubScreen(onOpenStudio:()->Unit) {
  if (screen == "MODELS") { ModelRuntimeScreen { screen = "HUB" }; return }
  if (screen == "PUBLISH") { SocialPublishScreen { screen = "HUB" }; return }
  if (screen == "PLUGINS") { PluginHubScreen { screen = "HUB" }; return }
+ if (screen == "SETTINGS") { SettingsScreen { screen = "HUB" }; return }
  activeModule?.let { code -> OmniModuleScreen(code = code, onBack = { activeModule = null }) ; return }
  Column(Modifier.fillMaxSize().background(HubBg).padding(16.dp)) {
   Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){
@@ -121,7 +123,7 @@ private fun AiHubScreen(onOpenStudio:()->Unit) {
   Spacer(Modifier.height(8.dp))
   Text("MODEL VAULT  ·  $importedModels NOWYCH PLIKÓW  ·  GGUF / SAFE-TENSORS / LORA / VAE",color=HubMuted,fontSize=10.sp,letterSpacing=1.1.sp)
   Spacer(Modifier.height(8.dp))
-  LazyVerticalGrid(columns=GridCells.Fixed(2),modifier=Modifier.fillMaxSize(),verticalArrangement=Arrangement.spacedBy(9.dp),horizontalArrangement=Arrangement.spacedBy(9.dp),contentPadding=PaddingValues(bottom=18.dp)){items(visible){module -> ModuleCard(module) { when (module.code) { "LLM" -> screen = "MODELS"; "PUB" -> screen = "PUBLISH"; "PLG" -> screen = "PLUGINS"; else -> activeModule = module.code } }}}
+  LazyVerticalGrid(columns=GridCells.Fixed(2),modifier=Modifier.fillMaxSize(),verticalArrangement=Arrangement.spacedBy(9.dp),horizontalArrangement=Arrangement.spacedBy(9.dp),contentPadding=PaddingValues(bottom=18.dp)){items(visible){module -> ModuleCard(module) { when (module.code) { "LLM" -> screen = "MODELS"; "PUB" -> screen = "PUBLISH"; "PLG" -> screen = "PLUGINS"; "SET" -> screen = "SETTINGS"; else -> activeModule = module.code } }}}
  }
 }
 
@@ -331,6 +333,66 @@ private fun PluginHubScreen(onBack: () -> Unit) {
                 Text("Integracja nie może zwiększyć autonomii przez prompt, obraz, video ani stronę WWW.",color=HubMuted,fontSize=10.sp)
             }
         }
+    }
+}
+
+@Composable
+private fun SettingsScreen(onBack: () -> Unit) {
+    val context = LocalContext.current
+    val prefs = remember { context.getSharedPreferences("ai_studio_settings", android.content.Context.MODE_PRIVATE) }
+    var language by remember { mutableStateOf(prefs.getString("language", "PL") ?: "PL") }
+    val languages = listOf("PL" to "Polski", "EN" to "English", "DE" to "Deutsch", "FR" to "Français", "ES" to "Español", "IT" to "Italiano", "CS" to "Čeština", "SK" to "Slovenčina", "UK" to "Українська")
+    val providers = listOf(
+        "OpenAI" to "Chat · code · vision",
+        "Google Gemini / Flow" to "Chat · image · video",
+        "Anthropic" to "Reasoning · code",
+        "OpenRouter" to "Multi-provider routing",
+        "Ollama" to "Local / LAN models",
+        "LocalAI" to "Private OpenAI-compatible runtime",
+        "ComfyUI" to "Image · video · audio workflows",
+        "Picsart" to "Image · video · creative tools",
+        "ElevenLabs" to "Voice · TTS · sound",
+        "Hugging Face" to "Models · GGUF · datasets"
+    )
+    val enabled = remember { mutableStateMapOf<String, Boolean>().apply { providers.forEach { (name, _) -> put(name, prefs.getBoolean("provider:$name", true)) } } }
+    Column(Modifier.fillMaxSize().background(HubBg).padding(16.dp)) {
+        HeaderRow("SETTINGS · OMNI SYSTEM", onBack)
+        Text("LANGUAGE", color=HubGold, fontWeight=FontWeight.Bold)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement=Arrangement.spacedBy(6.dp)) {
+            languages.take(5).forEach { (code, _) ->
+                FilterChip(selected=language==code, onClick={ language=code; prefs.edit().putString("language", code).apply() }, label={Text(code)})
+            }
+        }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement=Arrangement.spacedBy(6.dp)) {
+            languages.drop(5).forEach { (code, _) ->
+                FilterChip(selected=language==code, onClick={ language=code; prefs.edit().putString("language", code).apply() }, label={Text(code)})
+            }
+        }
+        Text(languages.firstOrNull { it.first == language }?.second ?: "Polski", color=HubMuted, fontSize=10.sp)
+        Spacer(Modifier.height(12.dp))
+        Text("MULTI-PROVIDER", color=HubGold, fontWeight=FontWeight.Bold)
+        Text("Provider routing is separate from prompts. Credentials are never passed into agent context.", color=HubMuted, fontSize=11.sp)
+        Spacer(Modifier.height(6.dp))
+        providers.forEach { (name, detail) ->
+            Surface(Modifier.fillMaxWidth(), color=HubPanel, shape=RoundedCornerShape(10.dp), border=BorderStroke(1.dp, Color(0xFF3B311B))) {
+                Row(Modifier.fillMaxWidth().padding(10.dp), verticalAlignment=Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text(name, color=HubIvory, fontWeight=FontWeight.Bold, fontSize=12.sp)
+                        Text(detail, color=HubMuted, fontSize=9.sp)
+                    }
+                    Switch(checked=enabled[name] == true, onCheckedChange={ value -> enabled[name]=value; prefs.edit().putBoolean("provider:$name", value).apply() })
+                }
+            }
+            Spacer(Modifier.height(5.dp))
+        }
+        Spacer(Modifier.height(6.dp))
+        Text("RUNTIME", color=HubGold, fontWeight=FontWeight.Bold)
+        Text("Resident runtime: 3× GGUF — CHAT+CODE / IMAGE / VIDEO. Backend requires exactly three slots and enforces memory limits.", color=HubMuted, fontSize=10.sp)
+        Text("MODEL STORAGE", color=HubGold2, fontWeight=FontWeight.Bold, fontSize=10.sp)
+        Text("Hugging Face → private MODEL_ROOT → atomic LOAD ALL. Gated/private repositories require HF authorization on the backend.", color=HubMuted, fontSize=10.sp)
+        Spacer(Modifier.height(8.dp))
+        Text("GOVERNANCE", color=HubGold, fontWeight=FontWeight.Bold)
+        Text("Authority Boundary · Spend & Rate Limits · Action Receipt · Revocation · Credential Handoff", color=HubIvory, fontSize=10.sp)
     }
 }
 
