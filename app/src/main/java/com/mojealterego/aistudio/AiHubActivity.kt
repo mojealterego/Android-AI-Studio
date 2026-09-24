@@ -145,6 +145,7 @@ private fun ModelRuntimeScreen(onBack: () -> Unit) {
     var status by remember { mutableStateOf("Wymagane 3 rezydentne modele GGUF: CHAT+CODE, IMAGE, VIDEO.") }
     var busy by remember { mutableStateOf(false) }
     var query by remember { mutableStateOf("") }
+    var selectedSlot by remember { mutableStateOf(0) }
     var hfModels by remember { mutableStateOf<List<HfModel>>(emptyList()) }
     var slots by remember {
         mutableStateOf(
@@ -176,6 +177,7 @@ private fun ModelRuntimeScreen(onBack: () -> Unit) {
                     Text(slot.purpose, color=HubIvory, fontSize=11.sp)
                     Text(if(slot.fileName.isBlank()) "Nie wybrano GGUF" else slot.fileName, color=Color(0xFFC5BCA9), fontSize=10.sp)
                     Text("Ścieżka: "+if(slot.path.isBlank()) "brak" else slot.path, color=HubMuted, fontSize=9.sp)
+                    OutlinedButton(onClick={ selectedSlot=index }, modifier=Modifier.fillMaxWidth()) { Text(if(selectedSlot==index) "SLOT ${index+1} · WYBRANY" else "PRZYPISZ POBRANY MODEL DO SLOTU ${index+1}") }
                 }
             }
             Spacer(Modifier.height(7.dp))
@@ -197,6 +199,7 @@ private fun ModelRuntimeScreen(onBack: () -> Unit) {
 
         Spacer(Modifier.height(12.dp))
         Text("HUGGING FACE MODEL VAULT", color=HubGold, fontWeight=FontWeight.Bold)
+        Text("AKTYWNY SLOT: ${selectedSlot + 1} · ${slots[selectedSlot].title}", color=HubGold2, fontSize=10.sp, fontWeight=FontWeight.Bold)
         Text("Wyszukuj repozytoria i wybieraj konkretne pliki GGUF do pobrania na backend.", color=HubMuted, fontSize=11.sp)
         Row(Modifier.fillMaxWidth(), horizontalArrangement=Arrangement.spacedBy(7.dp)) {
             OutlinedTextField(query,{query=it},label={Text("Szukaj modelu")},modifier=Modifier.weight(1f),singleLine=true)
@@ -224,7 +227,7 @@ private fun ModelRuntimeScreen(onBack: () -> Unit) {
                                 try {
                                     val result=api().downloadHuggingFace(auth(),HfDownloadRequest(repo,file.filename))
                                     status="Pobrano "+result.filename+" ("+result.bytes+" B)."
-                                    slots=slots.mapIndexed { i,s -> if(s.fileName.isBlank()) s.copy(fileName=file.filename,path=result.path,status="READY") else s }
+                                    slots=slots.mapIndexed { i,s -> if(i==selectedSlot) s.copy(fileName=file.filename,path=result.path,status="READY",loaded=false) else s }
                                 } catch(e:Exception){status="Błąd pobierania: "+(e.localizedMessage ?: "błąd")}
                                 finally {busy=false}
                             }
