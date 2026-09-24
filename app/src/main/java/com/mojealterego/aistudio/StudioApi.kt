@@ -125,7 +125,44 @@ data class JobResultResponse(
     val outputs: List<JobOutput> = emptyList()
 )
 
-interface StudioApi {
+
+
+data class RuntimeSlotState(
+    val slot_id: String,
+    val loaded: Boolean = false,
+    val model_path: String? = null,
+    val model_name: String? = null,
+    val memory_mb: Int? = null
+)
+
+data class RuntimeStateResponse(
+    val slots: List<RuntimeSlotState> = emptyList(),
+    val simultaneous_resident_slots: Int = 3
+)
+
+data class HfModel(
+    val id: String? = null,
+    val private: Boolean = false,
+    val downloads: Long? = null,
+    val likes: Long? = null,
+    val tags: List<String> = emptyList(),
+    val url: String? = null
+)
+
+data class HfSearchResponse(val models: List<HfModel> = emptyList())
+\ninterface StudioApi {
+    @GET("api/omni/runtime")
+    suspend fun runtimeState(
+        @Header("Authorization") authorization: String
+    ): RuntimeStateResponse
+
+    @GET("api/models/hf/search")
+    suspend fun searchHuggingFace(
+        @Header("Authorization") authorization: String,
+        @retrofit2.http.Query("q") query: String,
+        @retrofit2.http.Query("limit") limit: Int = 20
+    ): HfSearchResponse
+
     @GET("api/health")
     suspend fun health(): Map<String, String>
 
