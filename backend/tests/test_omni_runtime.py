@@ -1,10 +1,11 @@
 from fastapi.testclient import TestClient
 
 from app.main import app
+import app.omni_runtime as runtime
 
 
 def test_runtime_load_all_requires_three_slots(monkeypatch):
-    monkeypatch.setattr("app.omni_runtime.API_KEY", "test-key")
+    monkeypatch.setattr(runtime, "API_KEY", "test-key")
     client = TestClient(app)
     payload = {
         "slots": [
@@ -21,7 +22,18 @@ def test_runtime_load_all_requires_three_slots(monkeypatch):
 
 
 def test_runtime_load_all_registers_all_three_slots(monkeypatch):
-    monkeypatch.setattr("app.omni_runtime.API_KEY", "test-key")
+    monkeypatch.setattr(runtime, "API_KEY", "test-key")
+
+    async def fake_start_slot(slot, request):
+        state = runtime._SLOT_STATE[slot.id]
+        state.loaded = True
+        state.model_path = request.model_path
+        state.model_name = request.model_name
+        state.memory_mb = request.memory_mb
+        state.error = None
+        return state
+
+    monkeypatch.setattr(runtime, "_start_slot", fake_start_slot)
     client = TestClient(app)
     payload = {
         "slots": [
