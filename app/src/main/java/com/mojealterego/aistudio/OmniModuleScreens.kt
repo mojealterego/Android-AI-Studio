@@ -31,7 +31,10 @@ data class OmniModuleSpec(
     val actions: List<String>
 )
 
-fun moduleSpec(code: String): OmniModuleSpec = when (code) {\n    "AGT" -> OmniModuleSpec("AGT","AGENT REGISTRY","A01–A06 · wizja, referencje, produkcja, pipeline, QA, cinema","MULTI-AGENT",\n        listOf("A01 Intent & Creative Director","A02 Reference & Identity Analyst","A03 Image Production Agent","A04 Model & Pipeline Engineer","A05 Visual QA & Continuity","A06 Video & Cinematic Agent"),\n        listOf("OTWÓRZ AGENTÓW","URUCHOM PIPELINE","SPRAWDŹ UPRAWNIENIA"))
+fun moduleSpec(code: String): OmniModuleSpec = when (code) {
+    "AGT" -> OmniModuleSpec("AGT","AGENT REGISTRY","A01–A06 · wizja, referencje, produkcja, pipeline, QA, cinema","MULTI-AGENT",
+        listOf("A01 Intent & Creative Director","A02 Reference & Identity Analyst","A03 Image Production Agent","A04 Model & Pipeline Engineer","A05 Visual QA & Continuity","A06 Video & Cinematic Agent"),
+        listOf("OTWÓRZ AGENTÓW","URUCHOM PIPELINE","SPRAWDŹ UPRAWNIENIA"))
     "IMG" -> OmniModuleSpec("IMG","IMAGE LAB","Generowanie i edycja obrazu","LOCAL / GPU",
         listOf("GGUF / diffusion","Flux · SDXL · Qwen · LoRA","ControlNet / inpaint / img2img","WDA Ω∞ reference control","Visual QA przed eksportem"),
         listOf("NOWA GENERACJA","DODAJ REFERENCJE","OTWÓRZ MODEL VAULT"))
