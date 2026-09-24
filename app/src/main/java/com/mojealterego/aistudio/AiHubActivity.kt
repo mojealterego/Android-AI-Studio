@@ -57,6 +57,7 @@ private val modules = listOf(
  HubModule("AGENT","A05","VISUAL QA","identity drift · anatomy · continuity · specification QA","AGENT"),
  HubModule("AGENT","A06","CINEMATIC AGENT","storyboard · blocking · timeline · camera · video prompts","AGENT"),
  HubModule("SYSTEM","GOV","GOVERNANCE","authority · spend limits · receipts · revocation · credential boundary","SECURITY"),
+ HubModule("AGENT","AGT","AGENT REGISTRY","A01–A06 · intent · identity · image · pipeline · QA · cinema","MULTI-AGENT"),
  HubModule("AGENT","JAR","JARVIS","memory · conversation · actions · personal assistant","LOCAL / REMOTE"),
  HubModule("AGENT","WDA","WDA PHOTO","visual direction · photography · retouching","AGENT"),
  HubModule("AGENT","CIN","CINEMA","script → storyboard → shots → final film","MULTI-AGENT"),
