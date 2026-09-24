@@ -280,27 +280,28 @@ private fun StudioScreen() {
         }
     }
 
-    fun saveMedia(jobId: String, index: Int, filename: String?) {
+    fun shareMedia(jobId: String, index: Int, filename: String?) {
         scope.launch {
             busy = true
-            status = "Pobieranie wyniku do galerii…"
+            status = "Przygotowanie pliku do udostępnienia…"
             try {
                 val body = api().getMedia(authorization(), approvalToken.trim(), jobId, index)
                 val mime = body.contentType()?.toString() ?: mimeTypeForFilename(filename)
                 val safeName = (filename ?: "aistudio-$jobId-$index").replace(Regex("[^A-Za-z0-9._-]"), "_")
-                val temp = File(context.cacheDir, "aistudio-save-$jobId-$index-$safeName")
+                val temp = File(context.cacheDir, "aistudio-share-$jobId-$index-$safeName")
                 body.byteStream().use { input -> temp.outputStream().use { output -> input.copyTo(output) } }
-                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
-                    saveToMediaStore(context, temp, safeName, mime)
-                    status = "Zapisano w galerii."
-                } else {
-                    status = "Zapisywanie do galerii wymaga Androida 10 lub nowszego."
+                val uri = FileProvider.getUriForFile(context, context.packageName + ".fileprovider", temp)
+                val intent = Intent(Intent.ACTION_SEND).apply {
+                    type = mime
+                    putExtra(Intent.EXTRA_STREAM, uri)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                 }
-                temp.delete()
+                context.startActivity(Intent.createChooser(intent, "Udostępnij / opublikuj"))
+                status = "Plik przekazany do systemowego Sharesheet."
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                status = "Nie udało się zapisać wyniku: " + (e.localizedMessage ?: "błąd")
+                status = "Nie udało się udostępnić wyniku: " + (e.localizedMessage ?: "błąd")
             } finally {
                 busy = false
             }
@@ -872,6 +873,11 @@ private fun StudioScreen() {
                                         enabled = !busy,
                                         modifier = Modifier.weight(1f)
                                     ) { Text("ZAPISZ", fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold) }
+                                    OutlinedButton(
+                                        onClick = { shareMedia(response.id, output.media_index ?: index, output.filename) },
+                                        enabled = !busy,
+                                        modifier = Modifier.weight(1f)
+                                    ) { Text("UDOSTĘPNIJ", fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold) }
                                 }
                             }
                             previewBitmap?.let { bitmap ->
