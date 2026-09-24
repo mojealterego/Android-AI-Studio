@@ -50,6 +50,7 @@ private val modules = listOf(
  HubModule("CREATE","VOI","VOICE LAB","STT · TTS · dubbing · voice continuity","LOCAL / GPU"),
  HubModule("CREATE","MUS","MUSIC LAB","OpenMusic · MusicGen · MIDI Transformer","GPU WORKER"),
  HubModule("CREATE","PLG","PLUGIN HUB","MCP · apps · integrations · OAuth","GATEWAY"),
+ HubModule("CREATE","PUB","PUBLISH","Instagram · Facebook · TikTok · YouTube · X · Share","ANDROID SHARE"),
  HubModule("CREATE","AVA","AVATAR LAB","Duix · HunyuanPortrait · lip-sync","GPU WORKER"),
  HubModule("CREATE","NOV","STORY LAB","novel · screenplay · characters · continuity","AGENT"),
  HubModule("AGENT","A01","INTENT DIRECTOR","intent · ambiguity · target specification","AGENT"),
@@ -90,6 +91,7 @@ private fun AiHubScreen(onOpenStudio:()->Unit) {
  val visible=modules.filter{filter=="ALL"||it.group==filter}
  if (screen == "MODELS") { ModelRuntimeScreen { screen = "HUB" }; return }
  if (screen == "PUBLISH") { SocialPublishScreen { screen = "HUB" }; return }
+ if (screen == "PLUGINS") { PluginHubScreen { screen = "HUB" }; return }
  activeModule?.let { code -> OmniModuleScreen(code = code, onBack = { activeModule = null }) ; return }
  Column(Modifier.fillMaxSize().background(HubBg).padding(16.dp)) {
   Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){
@@ -119,7 +121,7 @@ private fun AiHubScreen(onOpenStudio:()->Unit) {
   Spacer(Modifier.height(8.dp))
   Text("MODEL VAULT  ·  $importedModels NOWYCH PLIKÓW  ·  GGUF / SAFE-TENSORS / LORA / VAE",color=HubMuted,fontSize=10.sp,letterSpacing=1.1.sp)
   Spacer(Modifier.height(8.dp))
-  LazyVerticalGrid(columns=GridCells.Fixed(2),modifier=Modifier.fillMaxSize(),verticalArrangement=Arrangement.spacedBy(9.dp),horizontalArrangement=Arrangement.spacedBy(9.dp),contentPadding=PaddingValues(bottom=18.dp)){items(visible){module -> ModuleCard(module) { when (module.code) { "LLM" -> screen = "MODELS"; "COM" -> screen = "PUBLISH"; else -> activeModule = module.code } }}}
+  LazyVerticalGrid(columns=GridCells.Fixed(2),modifier=Modifier.fillMaxSize(),verticalArrangement=Arrangement.spacedBy(9.dp),horizontalArrangement=Arrangement.spacedBy(9.dp),contentPadding=PaddingValues(bottom=18.dp)){items(visible){module -> ModuleCard(module) { when (module.code) { "LLM" -> screen = "MODELS"; "PUB" -> screen = "PUBLISH"; "PLG" -> screen = "PLUGINS"; else -> activeModule = module.code } }}}
  }
 }
 
@@ -295,6 +297,41 @@ private fun SocialPublishScreen(onBack: () -> Unit) {
 }
 
 @Composable
+private fun PluginHubScreen(onBack: () -> Unit) {
+    val plugins = listOf(
+        Triple("MCP", "Model Context Protocol", "Narzędzia i serwery MCP pod wspólnym Tool Bus."),
+        Triple("AI PROVIDERS", "OpenAI · Gemini · ElevenLabs", "Dostawcy modeli bez umieszczania sekretów w APK."),
+        Triple("MEDIA", "Picsart · Google Flow · ComfyUI", "Obraz, video, continuity i pipeline produkcyjny."),
+        Triple("RESEARCH", "Web · Hugging Face · GitHub", "Źródła, modele, repozytoria i aktualne dane."),
+        Triple("VOICE", "STT · TTS · Dubbing", "Głos jako osobny adapter z kontrolą poświadczeń."),
+        Triple("SOCIAL", "Publishing adapters", "Przekazanie gotowych image/video do aplikacji docelowej.")
+    )
+    Column(Modifier.fillMaxSize().background(HubBg).padding(16.dp)) {
+        HeaderRow("PLUGIN HUB · TOOL BUS", onBack)
+        Text("INTEGRATIONS", color=HubGold, fontWeight=FontWeight.Bold)
+        Text("Jedno miejsce na rozszerzenia aplikacji. Poświadczenia pozostają poza kontekstem agentów.", color=HubMuted, fontSize=11.sp)
+        Spacer(Modifier.height(10.dp))
+        plugins.forEach { item ->
+            Surface(Modifier.fillMaxWidth(),color=HubPanel,shape=RoundedCornerShape(12.dp),border=BorderStroke(1.dp,Color(0xFF3B311B))) {
+                Column(Modifier.padding(12.dp),verticalArrangement=Arrangement.spacedBy(4.dp)) {
+                    Text(item.first,color=HubGold,fontSize=9.sp,fontWeight=FontWeight.Bold)
+                    Text(item.second,color=HubIvory,fontWeight=FontWeight.Bold)
+                    Text(item.third,color=HubMuted,fontSize=10.sp)
+                }
+            }
+            Spacer(Modifier.height(7.dp))
+        }
+        Surface(Modifier.fillMaxWidth(),color=HubPanel,shape=RoundedCornerShape(12.dp),border=BorderStroke(1.dp,HubGold)) {
+            Column(Modifier.padding(12.dp),verticalArrangement=Arrangement.spacedBy(6.dp)) {
+                Text("GOVERNANCE",color=HubGold2,fontWeight=FontWeight.Bold)
+                Text("Authority Boundary · Spend & Rate Limits · Action Receipt · Revocation · Credential Handoff",color=HubIvory,fontSize=10.sp)
+                Text("Integracja nie może zwiększyć autonomii przez prompt, obraz, video ani stronę WWW.",color=HubMuted,fontSize=10.sp)
+            }
+        }
+    }
+}
+
+@Composable
 private fun HeaderRow(title: String, onBack: () -> Unit) {
     Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
         TextButton(onClick=onBack){Text("←",color=HubGold,fontSize=22.sp)}
@@ -313,8 +350,9 @@ private fun OmniModuleScreen(code: String, onBack: () -> Unit) {
     var server by remember { mutableStateOf("") }
     var apiKey by remember { mutableStateOf("") }
     var plan by remember { mutableStateOf<OmniPlanResponse?>(null) }
+    var targetMinutes by remember { mutableStateOf(if (code == "VID" || code == "CIN") "124" else "0") }
     var busy by remember { mutableStateOf(false) }
-    val agentCode = code in setOf("A01","A02","A03","A04","A05","A06","CIN")
+    val agentCode = code in setOf("A01","A02","A03","A04","A05","A06","CIN","VID")
     val mediaType = when(code) {
         "VID","CIN","A06" -> "VIDEO"
         "VOI" -> "VOICE"
@@ -344,6 +382,9 @@ private fun OmniModuleScreen(code: String, onBack: () -> Unit) {
             OutlinedTextField(server,{server=it},label={Text("Backend HTTPS")},modifier=Modifier.fillMaxWidth(),singleLine=true)
             OutlinedTextField(apiKey,{apiKey=it},label={Text("API key")},modifier=Modifier.fillMaxWidth(),singleLine=true)
             OutlinedTextField(intent,{intent=it},label={Text("Cel / polecenie")},modifier=Modifier.fillMaxWidth(),minLines=4)
+            if (code == "VID" || code == "CIN") {
+                OutlinedTextField(targetMinutes,{targetMinutes=it.filter(Char::isDigit)},label={Text("Docelowy czas filmu · min · max 124")},modifier=Modifier.fillMaxWidth(),singleLine=true)
+            }
             Button(
                 onClick={
                     if(server.isBlank()||apiKey.isBlank()||intent.isBlank()) return@Button
@@ -352,7 +393,7 @@ private fun OmniModuleScreen(code: String, onBack: () -> Unit) {
                         try {
                             plan=StudioApi.create(server).createOmniPlan(
                                 "Bearer "+apiKey.trim(),
-                                OmniPlanRequest(intent=intent,media_type=mediaType,scene_count=if(mediaType=="VIDEO") 12 else 1,target_duration_seconds=if(mediaType=="VIDEO") 7440 else 0)
+                                OmniPlanRequest(intent=intent,media_type=mediaType,scene_count=if(mediaType=="VIDEO") maxOf(1, ((targetMinutes.toIntOrNull() ?: 124) * 60 + 7) / 8) else 1,target_duration_seconds=if(mediaType=="VIDEO") minOf(7440, maxOf(0, (targetMinutes.toIntOrNull() ?: 124) * 60)) else 0)
                             )
                         } finally { busy=false }
                     }
