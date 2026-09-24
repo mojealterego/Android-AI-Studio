@@ -889,8 +889,6 @@ private fun StudioScreen() {
             }
         }
     }
-    }
-    }
 }
 
 @Composable
