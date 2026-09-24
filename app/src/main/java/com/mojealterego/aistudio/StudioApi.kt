@@ -216,6 +216,13 @@ interface StudioApi {
         @Body request: ApprovalRequest
     ): ApprovalResponse
 
+    @retrofit2.http.POST("api/v2/approvals/{grant_id}/revoke")
+    suspend fun revokeApproval(
+        @Path("grant_id") grantId: String,
+        @Header("Authorization") authorization: String,
+        @Header("X-Approval-Token") approvalToken: String
+    ): Map<String, Any?>
+
     @POST("api/v2/jobs")
     suspend fun createJobV2(
         @Header("Authorization") authorization: String,
