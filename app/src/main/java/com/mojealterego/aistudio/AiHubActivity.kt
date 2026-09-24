@@ -69,9 +69,12 @@ private fun AiHubTheme(content:@Composable ()->Unit) {
 @Composable
 private fun AiHubScreen(onOpenStudio:()->Unit) {
  var filter by remember { mutableStateOf("ALL") }
+ var screen by remember { mutableStateOf("HUB") }
  var importedModels by remember { mutableStateOf(0) }
  val picker=rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()){ uris-> importedModels+=uris.size }
  val visible=modules.filter{filter=="ALL"||it.group==filter}
+ if (screen == "MODELS") { ModelRuntimeScreen { screen = "HUB" }; return }
+ if (screen == "PUBLISH") { SocialPublishScreen { screen = "HUB" }; return }
  Column(Modifier.fillMaxSize().background(HubBg).padding(16.dp)) {
   Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){
    Column(Modifier.weight(1f)){
@@ -100,13 +103,13 @@ private fun AiHubScreen(onOpenStudio:()->Unit) {
   Spacer(Modifier.height(8.dp))
   Text("MODEL VAULT  ·  $importedModels NOWYCH PLIKÓW  ·  GGUF / SAFE-TENSORS / LORA / VAE",color=HubMuted,fontSize=10.sp,letterSpacing=1.1.sp)
   Spacer(Modifier.height(8.dp))
-  LazyVerticalGrid(columns=GridCells.Fixed(2),modifier=Modifier.fillMaxSize(),verticalArrangement=Arrangement.spacedBy(9.dp),horizontalArrangement=Arrangement.spacedBy(9.dp),contentPadding=PaddingValues(bottom=18.dp)){items(visible){ModuleCard(it)}}
+  LazyVerticalGrid(columns=GridCells.Fixed(2),modifier=Modifier.fillMaxSize(),verticalArrangement=Arrangement.spacedBy(9.dp),horizontalArrangement=Arrangement.spacedBy(9.dp),contentPadding=PaddingValues(bottom=18.dp)){items(visible){module -> ModuleCard(module) { if (module.code == "LLM") screen = "MODELS"; if (module.code == "COM") screen = "PUBLISH" }}}
  }
 }
 
 @Composable
-private fun ModuleCard(module:HubModule){
- Surface(Modifier.fillMaxWidth().heightIn(min=122.dp).clickable{},color=HubPanel,shape=RoundedCornerShape(14.dp),border=androidx.compose.foundation.BorderStroke(1.dp,Color(0xFF3B311B))){
+private fun ModuleCard(module:HubModule, onClick: () -> Unit){
+ Surface(Modifier.fillMaxWidth().heightIn(min=122.dp).clickable(onClick=onClick),color=HubPanel,shape=RoundedCornerShape(14.dp),border=androidx.compose.foundation.BorderStroke(1.dp,Color(0xFF3B311B))){
   Column(Modifier.padding(13.dp),verticalArrangement=Arrangement.spacedBy(6.dp)){
    Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween){Text(module.code,color=HubGold,fontWeight=FontWeight.Bold,letterSpacing=1.sp);Text(module.runtime,color=HubMuted,fontSize=8.sp,fontWeight=FontWeight.Bold)}
    Text(module.title,color=HubIvory,fontWeight=FontWeight.Bold,fontFamily=FontFamily.Serif,fontSize=16.sp)
