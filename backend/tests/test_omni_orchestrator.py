@@ -13,7 +13,7 @@ def test_omni_orchestrator_requires_auth(monkeypatch):
 
 
 def test_omni_orchestrator_plan_detects_reference_conflict(monkeypatch):
-    monkeypatch.setattr(main, "API_KEY", "secret")
+    monkeypatch.setattr(orchestrator, "API_KEY", "secret")
     client = TestClient(main.app)
     response = client.post(
         "/api/omni/orchestrator/plan",
@@ -39,7 +39,7 @@ def test_omni_orchestrator_plan_detects_reference_conflict(monkeypatch):
 
 
 def test_omni_orchestrator_default_video_route(monkeypatch):
-    monkeypatch.setattr(main, "API_KEY", "secret")
+    monkeypatch.setattr(orchestrator, "API_KEY", "secret")
     client = TestClient(main.app)
     response = client.post(
         "/api/omni/orchestrator/plan",
