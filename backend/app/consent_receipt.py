@@ -21,6 +21,7 @@ class ActionStatus(str, Enum):
     UNKNOWN = "unknown"
     DENIED = "denied"
     CANCELLED = "cancelled"
+    REVOKED = "revoked"
 
 
 @dataclass(frozen=True)
