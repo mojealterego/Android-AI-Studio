@@ -163,6 +163,32 @@ data class HfSearchResponse(val models: List<HfModel> = emptyList())
 data class HfDownloadRequest(val repo_id: String, val filename: String, val revision: String = "main")
 data class HfDownloadResponse(val status: String, val path: String, val bytes: Long, val repo_id: String, val filename: String)
 
+data class OmniReference(val id: String, val role: String)
+data class OmniPlanRequest(
+    val intent: String,
+    val media_type: String = "IMAGE",
+    val references: List<OmniReference> = emptyList(),
+    val model_preferences: List<String> = emptyList(),
+    val scene_count: Int = 1,
+    val target_duration_seconds: Int = 0,
+    val autonomy: String = "ASSISTED"
+)
+data class OmniScene(val scene: Int, val duration_seconds: Int, val continuity_source: String, val qa_required: Boolean)
+data class OmniPlanResponse(
+    val plan_id: String,
+    val status: String,
+    val intent: String,
+    val media_type: String,
+    val autonomy: String,
+    val reference_graph: List<OmniReference> = emptyList(),
+    val reference_conflicts: List<String> = emptyList(),
+    val pipeline: List<String> = emptyList(),
+    val model_route: List<String> = emptyList(),
+    val scenes: List<OmniScene> = emptyList(),
+    val validation: Map<String, Boolean> = emptyMap(),
+    val requires_human_approval_before_external_side_effect: Boolean = true
+)
+
 interface StudioApi {
     @GET("api/omni/runtime")
     suspend fun runtimeState(
@@ -194,6 +220,12 @@ interface StudioApi {
         @Header("Authorization") authorization: String,
         @Body request: HfDownloadRequest
     ): HfDownloadResponse
+
+    @POST("api/omni/orchestrator/plan")
+    suspend fun createOmniPlan(
+        @Header("Authorization") authorization: String,
+        @Body request: OmniPlanRequest
+    ): OmniPlanResponse
 
     @GET("api/health")
     suspend fun health(): Map<String, String>
