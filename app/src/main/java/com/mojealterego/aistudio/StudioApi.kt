@@ -1,8 +1,13 @@
 package com.mojealterego.aistudio
 
+import android.content.Context
+import android.net.Uri
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import okhttp3.OkHttpClient
+import okhttp3.MediaType
+import okhttp3.RequestBody
+import okio.BufferedSink
 import okhttp3.ResponseBody
 import okhttp3.Request
 import okhttp3.WebSocket
@@ -161,7 +166,7 @@ data class HfModel(
 data class HfSearchResponse(val models: List<HfModel> = emptyList())
 
 data class HfDownloadRequest(val repo_id: String, val filename: String, val revision: String = "main")
-data class HfDownloadResponse(val status: String, val path: String, val bytes: Long, val repo_id: String, val filename: String)
+data class HfDownloadResponse(val status: String, val path: String, val bytes: Long, val repo_id: String, val filename: String)\ndata class GgufUploadResponse(val status: String, val path: String, val bytes: Long, val filename: String)
 
 data class OmniReference(val id: String, val role: String)
 data class OmniPlanRequest(
@@ -208,7 +213,7 @@ interface StudioApi {
         @Body request: RuntimeLoadRequest
     ): RuntimeLoadResponse
 
-    @GET("api/models/hf/search")
+    @POST("api/models/upload")\n    suspend fun uploadGguf(\n        @Header("Authorization") authorization: String,\n        @Query("filename") filename: String,\n        @Body body: RequestBody\n    ): GgufUploadResponse\n\n    @GET("api/models/hf/search")
     suspend fun searchHuggingFace(
         @Header("Authorization") authorization: String,
         @retrofit2.http.Query("q") query: String,
@@ -306,6 +311,18 @@ interface StudioApi {
     ): List<JobResponse>
 
     companion object {
+        fun streamingRequestBody(context: Context, uri: Uri, contentType: MediaType? = null): RequestBody =
+            object : RequestBody() {
+                override fun contentType(): MediaType? = contentType
+                override fun contentLength(): Long =
+                    context.contentResolver.openAssetFileDescriptor(uri, "r")?.use { it.length } ?: -1L
+                override fun writeTo(sink: BufferedSink) {
+                    context.contentResolver.openInputStream(uri)?.use { input ->
+                        input.copyTo(sink.outputStream())
+                    } ?: error("Nie można otworzyć pliku GGUF")
+                }
+            }
+
         fun openProgressWebSocket(
             baseUrl: String,
             authorization: String,
