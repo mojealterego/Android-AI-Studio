@@ -103,11 +103,10 @@ async def download_huggingface(request: HFDownloadRequest, authorization: str | 
     await _authorize(authorization)
     if not HF_REPO_RE.fullmatch(request.repo_id):
         raise HTTPException(status_code=400, detail="Invalid Hugging Face repo id")
-    if ".." in Path(request.filename).parts:
-        raise HTTPException(status_code=400, detail="Invalid filename")
-    url = f"{HF_BASE}/{request.repo_id}/resolve/{request.revision}/{request.filename}"
+    safe_filename = _validate_gguf_filename(request.filename)
+    url = f"{HF_BASE}/{request.repo_id}/resolve/{request.revision}/{safe_filename}"
     repo_dir = re.sub(r"[^A-Za-z0-9_.-]+", "_", request.repo_id.replace("/", "__"))
-    target = _safe_model_path(f"{repo_dir}/{request.filename}")
+    target = _safe_model_path(f"{repo_dir}/{safe_filename}")
     target.parent.mkdir(parents=True, exist_ok=True)
     async with httpx.AsyncClient(timeout=None, follow_redirects=True) as client:
         headers = {"Accept": "application/octet-stream"}
