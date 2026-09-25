@@ -38,6 +38,13 @@ jobs:
           test -s app/build/outputs/apk/release/app-release-unsigned.apk
           echo "Unsigned release APK built successfully."
 
+      - name: Assemble unsigned release AAB
+        run: |
+          set -euo pipefail
+          gradle :app:bundleRelease
+          test -s app/build/outputs/bundle/release/app-release.aab
+          echo "Unsigned release AAB built successfully."
+
       - name: Publish debug APK
         uses: actions/upload-artifact@v4
         with:
@@ -51,5 +58,13 @@ jobs:
         with:
           name: android-ai-studio-release-apk
           path: app/build/outputs/apk/release/app-release-unsigned.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish release AAB
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-ai-studio-release-aab
+          path: app/build/outputs/bundle/release/app-release.aab
           if-no-files-found: error
           retention-days: 30
