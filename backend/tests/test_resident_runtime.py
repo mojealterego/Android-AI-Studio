@@ -28,3 +28,13 @@ def test_hf_download_requires_gguf_filename():
 
 def test_hf_download_accepts_nested_filename_without_path_traversal():
     assert vault._validate_gguf_filename("model.Q4_K_M.gguf") == "model.Q4_K_M.gguf"
+
+
+def test_resident_runtime_rejects_duplicate_models():
+    request = runtime.LoadAllRequest(slots=[
+        runtime.ResidentModel(model_path="/models/a.gguf", model_name="a.gguf"),
+        runtime.ResidentModel(model_path="/models/a.gguf", model_name="a.gguf"),
+        runtime.ResidentModel(model_path="/models/c.gguf", model_name="c.gguf"),
+    ])
+    with pytest.raises(Exception):
+        runtime.validate_resident_models(request.slots)
