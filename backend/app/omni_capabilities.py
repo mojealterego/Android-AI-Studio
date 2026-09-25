@@ -3,15 +3,16 @@ from __future__ import annotations
 import hmac
 import os
 from typing import Literal
+from dataclasses import asdict, dataclass
 
 from fastapi import APIRouter, Header, HTTPException
-from pydantic import BaseModel
 
 router = APIRouter(prefix="/api/omni", tags=["omni-capabilities"])
 API_KEY = os.getenv("API_KEY", "").strip()
 
 
-class Capability(BaseModel):
+@dataclass(frozen=True)
+class Capability:
     id: str
     category: Literal["CREATE", "AGENT", "SYSTEM"]
     title: str
@@ -63,7 +64,7 @@ async def capabilities(authorization: str | None = Header(default=None)):
     _auth(authorization)
     return {
         "version": "1.0",
-        "capabilities": [item.model_dump() for item in CAPABILITIES],
+        "capabilities": [asdict(item) for item in CAPABILITIES],
         "governance": {
             "authority_boundary": True,
             "spend_rate_limits": True,
