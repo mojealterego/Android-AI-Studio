@@ -166,7 +166,8 @@ data class HfModel(
 data class HfSearchResponse(val models: List<HfModel> = emptyList())
 
 data class HfDownloadRequest(val repo_id: String, val filename: String, val revision: String = "main")
-data class HfDownloadResponse(val status: String, val path: String, val bytes: Long, val repo_id: String, val filename: String)\ndata class GgufUploadResponse(val status: String, val path: String, val bytes: Long, val filename: String)
+data class HfDownloadResponse(val status: String, val path: String, val bytes: Long, val repo_id: String, val filename: String)
+data class GgufUploadResponse(val status: String, val path: String, val bytes: Long, val filename: String)
 
 data class OmniReference(val id: String, val role: String)
 data class OmniPlanRequest(
@@ -213,7 +214,14 @@ interface StudioApi {
         @Body request: RuntimeLoadRequest
     ): RuntimeLoadResponse
 
-    @POST("api/models/upload")\n    suspend fun uploadGguf(\n        @Header("Authorization") authorization: String,\n        @Query("filename") filename: String,\n        @Body body: RequestBody\n    ): GgufUploadResponse\n\n    @GET("api/models/hf/search")
+    @POST("api/models/upload")
+    suspend fun uploadGguf(
+        @Header("Authorization") authorization: String,
+        @Query("filename") filename: String,
+        @Body body: RequestBody
+    ): GgufUploadResponse
+
+    @GET("api/models/hf/search")
     suspend fun searchHuggingFace(
         @Header("Authorization") authorization: String,
         @retrofit2.http.Query("q") query: String,
