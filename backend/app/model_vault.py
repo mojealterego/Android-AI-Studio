@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import httpx
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Header, HTTPException, Request
 from pydantic import BaseModel, Field
 
 router = APIRouter(prefix="/api/models", tags=["models"])
@@ -18,6 +18,13 @@ HF_TOKEN = os.getenv("HF_TOKEN", "").strip()
 MAX_DOWNLOAD_BYTES = int(os.getenv("MODEL_MAX_DOWNLOAD_BYTES", str(200 * 1024**3)))
 API_KEY = os.getenv("API_KEY", "").strip()
 HF_REPO_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
+
+
+def _validate_gguf_filename(filename: str) -> str:
+    safe = Path(filename).name
+    if safe != filename or safe in {"", ".", ".."} or not safe.lower().endswith(".gguf"):
+        raise HTTPException(status_code=422, detail="Only GGUF model files are accepted")
+    return safe
 
 
 class HFFile(BaseModel):
@@ -43,6 +50,37 @@ def _safe_model_path(path: str) -> Path:
     if MODEL_ROOT != candidate and MODEL_ROOT not in candidate.parents:
         raise HTTPException(status_code=400, detail="Invalid model path")
     return candidate
+
+
+
+@router.post("/upload")
+async def upload_gguf(
+    request: Request,
+    filename: str,
+    authorization: str | None = Header(default=None),
+) -> dict[str, Any]:
+    """Stream a user-selected GGUF into the private model vault without buffering it in RAM."""
+    await _authorize(authorization)
+    safe_name = _validate_gguf_filename(filename)
+    target = _safe_model_path(f"uploads/{safe_name}")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    declared = request.headers.get("content-length")
+    if declared and int(declared) > MAX_DOWNLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="Model exceeds configured upload limit")
+    total = 0
+    tmp = target.with_suffix(target.suffix + ".part")
+    try:
+        with tmp.open("wb") as handle:
+            async for chunk in request.stream():
+                total += len(chunk)
+                if total > MAX_DOWNLOAD_BYTES:
+                    raise HTTPException(status_code=413, detail="Model exceeds configured upload limit")
+                handle.write(chunk)
+        tmp.replace(target)
+    except Exception:
+        tmp.unlink(missing_ok=True)
+        raise
+    return {"status": "uploaded", "path": str(target), "bytes": target.stat().st_size, "filename": safe_name}
 
 
 @router.get("/hf/search")
