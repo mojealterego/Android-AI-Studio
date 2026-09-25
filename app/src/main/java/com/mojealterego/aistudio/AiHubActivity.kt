@@ -149,6 +149,33 @@ private fun ModelRuntimeScreen(onBack: () -> Unit) {
     var query by remember { mutableStateOf("") }
     var selectedSlot by remember { mutableStateOf(0) }
     var hfModels by remember { mutableStateOf<List<HfModel>>(emptyList()) }
+    var uploadSlot by remember { mutableStateOf(0) }
+    val uploadPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        if (server.isBlank() || apiKey.isBlank()) {
+            status = "Podaj backend i API key."
+        } else {
+            scope.launch {
+                busy = true
+                try {
+                    val name = uri.lastPathSegment?.substringAfterLast('/')?.ifBlank { "model.gguf" } ?: "model.gguf"
+                    val response = api().uploadGguf(
+                        auth(),
+                        name,
+                        StudioApi.streamingRequestBody(context = context, uri = uri)
+                    )
+                    slots = slots.mapIndexed { i, s ->
+                        if (i == uploadSlot) s.copy(fileName = response.filename, path = response.path, status = "READY", loaded = false) else s
+                    }
+                    status = "Wysłano ${response.filename} do prywatnego MODEL_VAULT."
+                } catch (e: Exception) {
+                    status = "Błąd uploadu GGUF: " + (e.localizedMessage ?: "błąd")
+                } finally {
+                    busy = false
+                }
+            }
+        }
+    }
     var slots by remember {
         mutableStateOf(
             listOf(
@@ -158,6 +185,7 @@ private fun ModelRuntimeScreen(onBack: () -> Unit) {
             )
         )
     }
+    val context = LocalContext.current
     fun auth() = "Bearer " + apiKey.trim()
     fun api() = StudioApi.create(server)
     Column(Modifier.fillMaxSize().background(HubBg).padding(16.dp)) {
@@ -179,7 +207,14 @@ private fun ModelRuntimeScreen(onBack: () -> Unit) {
                     Text(slot.purpose, color=HubIvory, fontSize=11.sp)
                     Text(if(slot.fileName.isBlank()) "Nie wybrano GGUF" else slot.fileName, color=Color(0xFFC5BCA9), fontSize=10.sp)
                     Text("Ścieżka: "+if(slot.path.isBlank()) "brak" else slot.path, color=HubMuted, fontSize=9.sp)
-                    OutlinedButton(onClick={ selectedSlot=index }, modifier=Modifier.fillMaxWidth()) { Text(if(selectedSlot==index) "SLOT ${index+1} · WYBRANY" else "PRZYPISZ POBRANY MODEL DO SLOTU ${index+1}") }
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement=Arrangement.spacedBy(6.dp)) {
+                        OutlinedButton(onClick={ selectedSlot=index }, modifier=Modifier.weight(1f)) {
+                            Text(if(selectedSlot==index) "SLOT ${index+1} · WYBRANY" else "WYBIERZ SLOT")
+                        }
+                        OutlinedButton(onClick={ uploadSlot=index; uploadPicker.launch(arrayOf("application/octet-stream", "*/*")) }, modifier=Modifier.weight(1f)) {
+                            Text("IMPORT GGUF")
+                        }
+                    }
                 }
             }
             Spacer(Modifier.height(7.dp))
