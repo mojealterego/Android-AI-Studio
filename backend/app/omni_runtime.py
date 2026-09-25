@@ -109,6 +109,18 @@ def _runtime_command(slot_id: str, model_path: str, model_name: str) -> list[str
     return shlex.split(command)
 
 
+def validate_resident_models(models: list[ResidentModel]) -> None:
+    if len(models) != 3:
+        raise HTTPException(status_code=422, detail="Exactly three resident models are required")
+    normalized = [str(Path(item.model_path).resolve()) for item in models]
+    if len(set(normalized)) != 3:
+        raise HTTPException(status_code=422, detail="Resident CHAT+CODE, IMAGE and VIDEO models must be three distinct GGUF files")
+    for item in models:
+        _validate_model_path(item)
+        if not item.model_name.lower().endswith(".gguf"):
+            raise HTTPException(status_code=422, detail=f"{item.model_name} requires a GGUF model")
+
+
 def _validate_model_path(request: ResidentModel) -> None:
     path = Path(request.model_path).resolve()
     if path.suffix.lower() != ".gguf":
@@ -196,14 +208,9 @@ async def load_slot(slot_id: str, request: SlotLoadRequest, authorization: str |
 async def load_all(request: LoadAllRequest, authorization: str | None = Header(default=None)) -> dict[str, Any]:
     """Actually start all three trusted runtime processes and keep them resident."""
     _auth(authorization)
-    if len(request.slots) != 3:
-        raise HTTPException(status_code=422, detail="Exactly three resident slots are required")
+    validate_resident_models(request.slots)
     if sum((item.memory_mb or 0) for item in request.slots) > MAX_RESIDENT_MEMORY_MB:
         raise HTTPException(status_code=422, detail="Declared resident model memory exceeds configured limit")
-    for slot, item in zip(RUNTIME_SLOTS, request.slots):
-        _validate_model_path(item)
-        if slot.format == "GGUF" and not item.model_name.lower().endswith(".gguf"):
-            raise HTTPException(status_code=422, detail=f"{slot.id} requires a GGUF model")
 
     try:
         # Start the three resident runtimes as one transaction. The tasks are
