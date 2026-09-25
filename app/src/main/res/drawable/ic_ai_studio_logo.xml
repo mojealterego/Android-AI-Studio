@@ -5,15 +5,35 @@
     android:viewportWidth="108"
     android:viewportHeight="108">
     <path
-        android:fillColor="#080807"
-        android:pathData="M8,8 L100,8 L100,100 L8,100 Z" />
+        android:fillColor="#050504"
+        android:pathData="M0,0 L108,0 L108,108 L0,108 Z" />
+
+    <!-- AM monogram -->
     <path
         android:fillColor="#D4AF37"
-        android:pathData="M24,84 L42,24 L53,24 L71,84 L60,84 L56,70 L39,70 L35,84 Z M42,59 L53,59 L48,40 Z" />
+        android:pathData="M20,82 L35,32 L44,32 L55,67 L66,32 L75,32 L90,82 L79,82 L69,51 L59,82 L51,82 L41,51 L31,82 Z" />
     <path
-        android:fillColor="#F2D675"
-        android:pathData="M64,84 L64,24 L75,24 L75,74 L88,74 L88,84 Z" />
+        android:fillColor="#F6DC82"
+        android:pathData="M47,82 L47,42 L58,42 L58,82 Z" />
+
+    <!-- crown -->
     <path
         android:fillColor="#D4AF37"
-        android:pathData="M8,8 L100,8 L100,12 L8,12 Z" />
+        android:pathData="M31,25 L37,13 L45,21 L54,7 L63,21 L71,13 L77,25 L72,30 L36,30 Z" />
+    <path
+        android:fillColor="#F6DC82"
+        android:pathData="M37,25 L72,25 L69,29 L40,29 Z" />
+
+    <!-- simplified laurel -->
+    <path
+        android:fillColor="#D4AF37"
+        android:pathData="M29,29 C16,40 13,58 21,76 C24,82 29,87 35,90 L38,86 C30,81 25,75 23,68 C19,54 22,41 33,33 Z" />
+    <path
+        android:fillColor="#D4AF37"
+        android:pathData="M79,29 C92,40 95,58 87,76 C84,82 79,87 73,90 L70,86 C78,81 83,75 85,68 C89,54 86,41 75,33 Z" />
+
+    <!-- gold baseline -->
+    <path
+        android:fillColor="#F0D77A"
+        android:pathData="M25,94 L83,94 L83,97 L25,97 Z" />
 </vector>
