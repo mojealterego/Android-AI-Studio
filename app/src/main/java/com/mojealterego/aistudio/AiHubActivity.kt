@@ -142,6 +142,7 @@ private fun ModuleCard(module:HubModule, onClick: () -> Unit){
 @Composable
 private fun ModelRuntimeScreen(onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     var server by remember { mutableStateOf("") }
     var apiKey by remember { mutableStateOf("") }
     var status by remember { mutableStateOf("Wymagane 3 rezydentne modele GGUF: CHAT+CODE, IMAGE, VIDEO.") }
@@ -150,32 +151,6 @@ private fun ModelRuntimeScreen(onBack: () -> Unit) {
     var selectedSlot by remember { mutableStateOf(0) }
     var hfModels by remember { mutableStateOf<List<HfModel>>(emptyList()) }
     var uploadSlot by remember { mutableStateOf(0) }
-    val uploadPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri == null) return@rememberLauncherForActivityResult
-        if (server.isBlank() || apiKey.isBlank()) {
-            status = "Podaj backend i API key."
-        } else {
-            scope.launch {
-                busy = true
-                try {
-                    val name = uri.lastPathSegment?.substringAfterLast('/')?.ifBlank { "model.gguf" } ?: "model.gguf"
-                    val response = api().uploadGguf(
-                        auth(),
-                        name,
-                        StudioApi.streamingRequestBody(context = context, uri = uri)
-                    )
-                    slots = slots.mapIndexed { i, s ->
-                        if (i == uploadSlot) s.copy(fileName = response.filename, path = response.path, status = "READY", loaded = false) else s
-                    }
-                    status = "Wysłano ${response.filename} do prywatnego MODEL_VAULT."
-                } catch (e: Exception) {
-                    status = "Błąd uploadu GGUF: " + (e.localizedMessage ?: "błąd")
-                } finally {
-                    busy = false
-                }
-            }
-        }
-    }
     var slots by remember {
         mutableStateOf(
             listOf(
@@ -185,9 +160,41 @@ private fun ModelRuntimeScreen(onBack: () -> Unit) {
             )
         )
     }
-    val context = LocalContext.current
+
     fun auth() = "Bearer " + apiKey.trim()
-    fun api() = StudioApi.create(server)
+    fun api(): StudioApi = StudioApi.create(server)
+
+    val uploadPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        if (server.isBlank() || apiKey.isBlank()) {
+            status = "Podaj backend i API key."
+        } else {
+            scope.launch {
+                busy = true
+                try {
+                    val name = uri.lastPathSegment?.substringAfterLast('/')?.ifBlank { "model.gguf" } ?: "model.gguf"
+                    if (!name.lowercase().endsWith(".gguf")) {
+                        status = "Do slotów rezydentnych wymagane są pliki .gguf."
+                        return@launch
+                    }
+                    val response = api().uploadGguf(
+                        auth(),
+                        name,
+                        StudioApi.streamingRequestBody(context, uri)
+                    )
+                    slots = slots.mapIndexed { i, s ->
+                        if (i == uploadSlot) s.copy(fileName = response.filename, path = response.path, status = "READY", loaded = false) else s
+                    }
+                    status = "Wysłano \${response.filename} do prywatnego MODEL_VAULT."
+                } catch (e: Exception) {
+                    status = "Błąd uploadu GGUF: " + (e.localizedMessage ?: "błąd")
+                } finally {
+                    busy = false
+                }
+            }
+        }
+    }
+
     Column(Modifier.fillMaxSize().background(HubBg).padding(16.dp)) {
         HeaderRow("MODEL VAULT · 3× GGUF", onBack)
         Text("TRZY MODELE REZYDENTNE", color=HubGold, fontWeight=FontWeight.Bold)
@@ -196,6 +203,7 @@ private fun ModelRuntimeScreen(onBack: () -> Unit) {
         OutlinedTextField(server, { server=it }, label={Text("Backend HTTPS")}, modifier=Modifier.fillMaxWidth(), singleLine=true)
         OutlinedTextField(apiKey, { apiKey=it }, label={Text("API key")}, modifier=Modifier.fillMaxWidth(), singleLine=true)
         Spacer(Modifier.height(8.dp))
+
         slots.forEachIndexed { index, slot ->
             Surface(Modifier.fillMaxWidth(), color=HubPanel, shape=RoundedCornerShape(13.dp),
                 border=BorderStroke(1.dp, if (slot.fileName.isNotBlank()) HubGold else Color(0xFF3B311B))) {
@@ -209,9 +217,9 @@ private fun ModelRuntimeScreen(onBack: () -> Unit) {
                     Text("Ścieżka: "+if(slot.path.isBlank()) "brak" else slot.path, color=HubMuted, fontSize=9.sp)
                     Row(Modifier.fillMaxWidth(), horizontalArrangement=Arrangement.spacedBy(6.dp)) {
                         OutlinedButton(onClick={ selectedSlot=index }, modifier=Modifier.weight(1f)) {
-                            Text(if(selectedSlot==index) "SLOT ${index+1} · WYBRANY" else "WYBIERZ SLOT")
+                            Text(if(selectedSlot==index) "SLOT "+(index+1)+" · WYBRANY" else "WYBIERZ SLOT")
                         }
-                        OutlinedButton(onClick={ uploadSlot=index; uploadPicker.launch(arrayOf("application/octet-stream", "*/*")) }, modifier=Modifier.weight(1f)) {
+                        OutlinedButton(onClick={ uploadSlot=index; uploadPicker.launch(arrayOf("application/octet-stream")) }, modifier=Modifier.weight(1f)) {
                             Text("IMPORT GGUF")
                         }
                     }
@@ -219,24 +227,29 @@ private fun ModelRuntimeScreen(onBack: () -> Unit) {
             }
             Spacer(Modifier.height(7.dp))
         }
+
         Button(onClick={
-            if(server.isBlank() || apiKey.isBlank() || slots.any { it.fileName.isBlank() }) {
+            if(server.isBlank() || apiKey.isBlank() || slots.any { it.fileName.isBlank() || it.path.isBlank() }) {
                 status="Nie można uruchomić runtime: wszystkie 3 sloty muszą mieć GGUF."
             } else scope.launch {
                 busy=true
                 try {
-                    api().loadAllRuntime(auth(), LoadAllRuntimeRequest(slots.map { ResidentModelRequest(it.path,it.fileName) }))
+                    val result = api().loadAllRuntime(
+                        auth(),
+                        LoadAllRuntimeRequest(slots.map { ResidentModelRequest(it.path,it.fileName) })
+                    )
                     slots=slots.map { it.copy(loaded=true,status="LOADED") }
-                    status="3/3 modeli zostały zarejestrowane jako rezydentne."
-                } catch(e:Exception) { status="Błąd ładowania 3 slotów: "+(e.localizedMessage ?: "błąd") }
-                finally { busy=false }
+                    status="3/3 modeli zostały uruchomione jednocześnie ("+result.simultaneous_resident_slots+"/3)."
+                } catch(e:Exception) {
+                    status="Błąd ładowania 3 slotów: "+(e.localizedMessage ?: "błąd")
+                } finally { busy=false }
             }
         }, enabled=!busy, colors=ButtonDefaults.buttonColors(containerColor=HubGold, contentColor=HubBg),
             modifier=Modifier.fillMaxWidth()) { Text("LOAD 3 MODELE JEDNOCZEŚNIE", fontWeight=FontWeight.Bold) }
 
         Spacer(Modifier.height(12.dp))
         Text("HUGGING FACE MODEL VAULT", color=HubGold, fontWeight=FontWeight.Bold)
-        Text("AKTYWNY SLOT: ${selectedSlot + 1} · ${slots[selectedSlot].title}", color=HubGold2, fontSize=10.sp, fontWeight=FontWeight.Bold)
+        Text("AKTYWNY SLOT: "+(selectedSlot + 1)+" · "+slots[selectedSlot].title, color=HubGold2, fontSize=10.sp, fontWeight=FontWeight.Bold)
         Text("Wyszukuj repozytoria i wybieraj konkretne pliki GGUF do pobrania na backend.", color=HubMuted, fontSize=11.sp)
         Row(Modifier.fillMaxWidth(), horizontalArrangement=Arrangement.spacedBy(7.dp)) {
             OutlinedTextField(query,{query=it},label={Text("Szukaj modelu")},modifier=Modifier.weight(1f),singleLine=true)
@@ -246,7 +259,7 @@ private fun ModelRuntimeScreen(onBack: () -> Unit) {
                     busy=true
                     try { hfModels=api().searchHuggingFace(auth(),query,20).models; status="Znaleziono "+hfModels.size+" repozytoriów." }
                     catch(e:Exception){ status="Błąd HF: "+(e.localizedMessage ?: "błąd") }
-                    finally { busy=false }
+                    finally {busy=false}
                 }
             },enabled=!busy){Text("SZUKAJ")}
         }
