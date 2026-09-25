@@ -308,6 +308,31 @@ private fun StudioScreen() {
         }
     }
 
+    fun saveMedia(jobId: String, index: Int, filename: String?) {
+        scope.launch {
+            busy = true
+            status = "Zapisywanie wyniku…"
+            try {
+                val body = api().getMedia(authorization(), approvalToken.trim(), jobId, index)
+                val mime = body.contentType()?.toString() ?: mimeTypeForFilename(filename)
+                val safeName = (filename ?: "output-$index").replace(Regex("[^A-Za-z0-9._-]"), "_")
+                val temp = File(context.cacheDir, "aistudio-save-$jobId-$index-$safeName")
+                body.byteStream().use { input -> temp.outputStream().use { output -> input.copyTo(output) } }
+                withContext(Dispatchers.IO) {
+                    saveToMediaStore(context, temp, safeName, mime)
+                }
+                temp.delete()
+                status = "Zapisano w galerii / plikach urządzenia."
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                status = "Nie udało się zapisać wyniku: " + (e.localizedMessage ?: "błąd")
+            } finally {
+                busy = false
+            }
+        }
+    }
+
     fun cancelCurrentJob() {
         val current = job ?: return
         if (current.status in setOf("COMPLETED", "FAILED", "CANCELLED", "UNKNOWN")) return
